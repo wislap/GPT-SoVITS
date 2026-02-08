@@ -182,13 +182,12 @@
 </template>
 
 <script setup lang="ts">
-import type { VoiceConfig, VoiceListItem } from '~/types'
+import type { VoiceConfig } from '~/types'
 
 const router = useRouter()
 const api = useApi()
 
 const defaultConfig = ref<VoiceConfig | null>(null)
-const voices = ref<VoiceListItem[]>([])
 const voiceConfigs = ref<VoiceConfig[]>([])
 const reloading = ref(false)
 const showDefaults = ref(false)
@@ -249,11 +248,8 @@ async function handleReload() {
 
 async function loadData() {
   try {
-    const [dc, vl] = await Promise.all([api.getDefaultConfig(), api.listVoices()])
+    const [dc, configs] = await Promise.all([api.getDefaultConfig(), api.listVoicesFull()])
     defaultConfig.value = dc
-    voices.value = vl
-
-    const configs = await Promise.all(vl.map((v: VoiceListItem) => api.getVoice(v.id)))
     voiceConfigs.value = configs
   } catch (e) {
     console.error('Failed to load config data:', e)

@@ -5,7 +5,7 @@ GPT-SoVITS API v3 - 声音配置管理模块
 每个 voice_id 对应 voices/ 目录下的一个 .toml 文件。
 """
 
-import os
+import asyncio
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -233,6 +233,11 @@ def load_default_config() -> VoiceConfig:
     return _dict_to_voice_config(_get_default_data())
 
 
+async def aload_default_config() -> VoiceConfig:
+    """load_default_config 的异步版本"""
+    return await asyncio.to_thread(load_default_config)
+
+
 # ─── TOML 读写 ───
 
 def load_voice(voice_id: str) -> VoiceConfig:
@@ -241,6 +246,11 @@ def load_voice(voice_id: str) -> VoiceConfig:
     if toml_path is None:
         raise FileNotFoundError(f"未找到 voice_id={voice_id!r} 的配置文件")
     return load_voice_from_file(toml_path)
+
+
+async def aload_voice(voice_id: str) -> VoiceConfig:
+    """load_voice 的异步版本"""
+    return await asyncio.to_thread(load_voice, voice_id)
 
 
 def load_voice_from_file(path: str | Path, apply_defaults: bool = True) -> VoiceConfig:
@@ -288,6 +298,11 @@ def save_voice(config: VoiceConfig, path: Optional[str | Path] = None) -> Path:
     return path
 
 
+async def asave_voice(config: VoiceConfig, path: Optional[str | Path] = None) -> Path:
+    """save_voice 的异步版本"""
+    return await asyncio.to_thread(save_voice, config, path)
+
+
 def list_voices() -> list[VoiceConfig]:
     """列出所有可用的声音配置"""
     voices = []
@@ -302,6 +317,11 @@ def list_voices() -> list[VoiceConfig]:
         except Exception as e:
             print(f"[warn] 加载 {toml_file.name} 失败: {e}")
     return voices
+
+
+async def alist_voices() -> list[VoiceConfig]:
+    """list_voices 的异步版本"""
+    return await asyncio.to_thread(list_voices)
 
 
 def _find_voice_file(voice_id: str) -> Optional[Path]:
@@ -326,3 +346,8 @@ def _find_voice_file(voice_id: str) -> Optional[Path]:
                 continue
 
     return None
+
+
+async def afind_voice_file(voice_id: str) -> Optional[Path]:
+    """_find_voice_file 的异步版本"""
+    return await asyncio.to_thread(_find_voice_file, voice_id)

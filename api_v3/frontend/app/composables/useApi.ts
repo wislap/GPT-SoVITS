@@ -1,11 +1,9 @@
 import type { VoiceConfig, VoiceListItem, HealthResponse } from '~/types'
 
-const API_BASE = '/api/v3'
-
-async function apiFetch<T>(path: string, options?: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: Record<string, any> }): Promise<T> {
+async function apiFetch<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
   const config = useRuntimeConfig()
-  const base = (config.public.apiBase as string) || API_BASE
-  return await $fetch<T>(`${base}${path}`, options)
+  const base = (config.public.apiBase as string) || '/api/v3'
+  return await $fetch<T>(`${base}${path}`, options as any)
 }
 
 export function useApi() {
@@ -29,12 +27,16 @@ export function useApi() {
     return apiFetch('/config/reload', { method: 'POST' })
   }
 
+  async function listVoicesFull(): Promise<VoiceConfig[]> {
+    return apiFetch<VoiceConfig[]>('/voices/full')
+  }
+
   async function createVoice(config: VoiceConfig): Promise<VoiceConfig> {
-    return apiFetch<VoiceConfig>('/voices', { method: 'POST', body: config as unknown as Record<string, any> })
+    return apiFetch<VoiceConfig>('/voices', { method: 'POST', body: config })
   }
 
   async function updateVoice(voiceId: string, config: VoiceConfig): Promise<VoiceConfig> {
-    return apiFetch<VoiceConfig>(`/voices/${voiceId}`, { method: 'PUT', body: config as unknown as Record<string, any> })
+    return apiFetch<VoiceConfig>(`/voices/${voiceId}`, { method: 'PUT', body: config })
   }
 
   async function deleteVoice(voiceId: string): Promise<{ status: string; deleted: string }> {
@@ -48,6 +50,7 @@ export function useApi() {
   return {
     getHealth,
     listVoices,
+    listVoicesFull,
     getVoice,
     getDefaultConfig,
     reloadConfig,

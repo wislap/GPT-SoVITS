@@ -5,21 +5,19 @@ GPT-SoVITS API v3 - 配置管理路由
 """
 
 from dataclasses import asdict
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from api_v3.config import (
     VoiceConfig,
-    load_voice,
-    load_default_config,
-    list_voices,
-    save_voice,
+    aload_voice,
+    aload_default_config,
+    alist_voices,
+    asave_voice,
     reload_default_config,
     _dict_to_voice_config,
-    _find_voice_file,
-    VOICES_DIR,
+    afind_voice_file,
 )
 
 
@@ -82,13 +80,8 @@ class VoiceListItem(BaseModel):
     description: str
     version: str
 
-class VoiceConfigRequest(BaseModel):
-    """创建 / 更新 voice 的请求体"""
-    voice: VoiceInfoResponse
-    model: ModelConfigResponse
-    ref_audio: RefAudioResponse
-    params: InferParamsResponse
-    output: OutputConfigResponse
+# VoiceConfigResponse 同时作为请求体（创建/更新）
+VoiceConfigRequest = VoiceConfigResponse
 
 class BatchDeleteRequest(BaseModel):
     ids: list[str]
@@ -98,13 +91,7 @@ class BatchDeleteRequest(BaseModel):
 
 def _voice_config_to_response(cfg: VoiceConfig) -> dict:
     """将 VoiceConfig dataclass 转为可序列化的 dict"""
-    return {
-        "voice": asdict(cfg.voice),
-        "model": asdict(cfg.model),
-        "ref_audio": asdict(cfg.ref_audio),
-        "params": asdict(cfg.params),
-        "output": asdict(cfg.output),
-    }
+    return asdict(cfg)
 
 
 # ─── 声音列表 ───
@@ -112,7 +99,7 @@ def _voice_config_to_response(cfg: VoiceConfig) -> dict:
 @router.get("/voices", response_model=list[VoiceListItem], summary="列出所有声音")
 async def api_list_voices():
     """返回所有可用声音的摘要列表"""
-    voices = list_voices()
+    voices = await alist_voices()
     return [
         VoiceListItem(
             id=v.voice.id,
@@ -122,6 +109,13 @@ async def api_list_voices():
         )
         for v in voices
     ]
+
+
+@router.get("/voices/full", response_model=list[VoiceConfigResponse], summary="列出所有声音（完整配置）")
+async def api_list_voices_full():
+    """返回所有声音的完整配置，避免前端逐个请求"""
+    voices = await alist_voices()
+    return [_voice_config_to_response(v) for v in voices]
 
 
 # ─── 声音 CRUD ───
@@ -134,13 +128,13 @@ async def api_create_voice(body: VoiceConfigRequest):
         raise HTTPException(status_code=400, detail="voice.id 不能为空")
 
     # 检查是否已存在
-    existing = _find_voice_file(voice_id)
+    existing = await afind_voice_file(voice_id)
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"声音 {voice_id!r} 已存在")
 
     cfg = _dict_to_voice_config(body.model_dump())
     try:
-        save_voice(cfg)
+        await asave_voice(cfg)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -153,7 +147,7 @@ async def api_batch_delete_voices(body: BatchDeleteRequest):
     deleted = []
     not_found = []
     for vid in body.ids:
-        file_path = _find_voice_file(vid)
+        file_path = await afind_voice_file(vid)
         if file_path is None:
             not_found.append(vid)
         else:
@@ -166,7 +160,7 @@ async def api_batch_delete_voices(body: BatchDeleteRequest):
 async def api_get_voice(voice_id: str):
     """获取指定声音的完整配置（已合并默认配置）"""
     try:
-        cfg = load_voice(voice_id)
+        cfg = await aload_voice(voice_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"声音 {voice_id!r} 不存在")
     return _voice_config_to_response(cfg)
@@ -175,7 +169,7 @@ async def api_get_voice(voice_id: str):
 @router.put("/voices/{voice_id}", response_model=VoiceConfigResponse, summary="更新声音配置")
 async def api_update_voice(voice_id: str, body: VoiceConfigRequest):
     """更新已有的声音配置"""
-    existing = _find_voice_file(voice_id)
+    existing = await afind_voice_file(voice_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"声音 {voice_id!r} 不存在")
 
@@ -183,7 +177,7 @@ async def api_update_voice(voice_id: str, body: VoiceConfigRequest):
     # 确保 voice.id 与路径参数一致
     cfg.voice.id = voice_id
     try:
-        save_voice(cfg, path=existing)
+        await asave_voice(cfg, path=existing)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -193,7 +187,7 @@ async def api_update_voice(voice_id: str, body: VoiceConfigRequest):
 @router.delete("/voices/{voice_id}", summary="删除声音配置")
 async def api_delete_voice(voice_id: str):
     """删除指定声音的配置文件"""
-    file_path = _find_voice_file(voice_id)
+    file_path = await afind_voice_file(voice_id)
     if file_path is None:
         raise HTTPException(status_code=404, detail=f"声音 {voice_id!r} 不存在")
 
@@ -206,7 +200,7 @@ async def api_delete_voice(voice_id: str):
 @router.get("/config/default", response_model=VoiceConfigResponse, summary="获取默认配置")
 async def api_get_default_config():
     """获取默认配置（default.toml 的内容）"""
-    cfg = load_default_config()
+    cfg = await aload_default_config()
     return _voice_config_to_response(cfg)
 
 

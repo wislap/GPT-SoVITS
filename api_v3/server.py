@@ -17,13 +17,44 @@ _project_root = _api_v3_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from contextlib import asynccontextmanager
+
 from api_v3.routers.config import router as config_router
 from api_v3.routers.health import router as health_router
+from api_v3.routers.tts import router as tts_router
+
+
+# ─── TTS Pipeline 初始化 ───
+
+_tts_config_path: str = "GPT_SoVITS/configs/tts_infer.yaml"
+
+
+def _init_tts_pipeline(app_instance):
+    """初始化 TTS pipeline 并挂到 app.state 上"""
+    from GPT_SoVITS.TTS_infer_pack.TTS import TTS, TTS_Config
+    from GPT_SoVITS.TTS_infer_pack.text_segmentation_method import get_method_names as get_cut_method_names
+
+    tts_config = TTS_Config(_tts_config_path)
+    print(tts_config)
+    tts_pipeline = TTS(tts_config)
+
+    app_instance.state.tts_pipeline = tts_pipeline
+    app_instance.state.tts_config = tts_config
+    app_instance.state.cut_method_names = get_cut_method_names()
+
+
+@asynccontextmanager
+async def lifespan(app_instance):
+    """FastAPI lifespan: 启动时初始化 TTS pipeline"""
+    _init_tts_pipeline(app_instance)
+    yield
+
 
 app = FastAPI(
     title="GPT-SoVITS API v3",
     description="文本转语音合成 API",
     version="3.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -37,6 +68,7 @@ app.add_middleware(
 # ─── 挂载路由 ───
 app.include_router(config_router)
 app.include_router(health_router)
+app.include_router(tts_router)
 
 
 if __name__ == "__main__":
@@ -46,6 +78,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GPT-SoVITS API v3")
     parser.add_argument("-p", "--port", type=int, default=9881, help="监听端口 (默认: 9881)")
     parser.add_argument("-a", "--host", type=str, default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
+    parser.add_argument("-c", "--tts_config", type=str, default="GPT_SoVITS/configs/tts_infer.yaml", help="TTS 配置文件路径")
     args = parser.parse_args()
 
+    _tts_config_path = args.tts_config
     uvicorn.run(app, host=args.host, port=args.port)
