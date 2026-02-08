@@ -47,9 +47,11 @@ def _init_tts_pipeline(app_instance):
     app_instance.state.cut_method_names = get_cut_method_names()
 
 
-def _auto_load_last_voice(tts_pipeline):
-    """根据 settings.toml 中的 last_voice_id 自动加载上次使用的模型"""
+def _auto_load_last_voice(tts_pipeline) -> tuple[str, str]:
+    """根据 settings.toml 中的 last_voice_id 自动加载上次使用的模型。
+    返回 (gpt_weights, sovits_weights) 路径，供 InferenceEngine 同步。"""
     from api_v3.config import load_settings, load_voice
+    gpt_w, sovits_w = "", ""
     try:
         settings = load_settings()
         voice_id = settings.get("last_voice_id", "_default")
@@ -58,19 +60,22 @@ def _auto_load_last_voice(tts_pipeline):
             if cfg.model.gpt_weights:
                 print(f"[startup] 自动加载 GPT 权重: {cfg.model.gpt_weights}")
                 tts_pipeline.init_t2s_weights(cfg.model.gpt_weights)
+                gpt_w = cfg.model.gpt_weights
             if cfg.model.sovits_weights:
                 print(f"[startup] 自动加载 SoVITS 权重: {cfg.model.sovits_weights}")
                 tts_pipeline.init_vits_weights(cfg.model.sovits_weights)
+                sovits_w = cfg.model.sovits_weights
             print(f"[startup] 已加载声音配置: {voice_id}")
     except Exception as e:
         print(f"[startup] 自动加载声音配置失败: {e}")
+    return gpt_w, sovits_w
 
 
 @asynccontextmanager
 async def lifespan(app_instance):
     """FastAPI lifespan: 启动时初始化 TTS pipeline、推理引擎，并自动加载上次使用的模型"""
     _init_tts_pipeline(app_instance)
-    _auto_load_last_voice(app_instance.state.tts_pipeline)
+    loaded_gpt, loaded_sovits = _auto_load_last_voice(app_instance.state.tts_pipeline)
 
     # 创建并启动推理引擎
     from api_v3.inference import InferenceEngine
@@ -79,6 +84,11 @@ async def lifespan(app_instance):
         app_instance.state.tts_config,
         app_instance.state.cut_method_names,
     )
+    # 同步启动时已加载的模型路径，避免首次推理重复加载
+    if loaded_gpt:
+        engine._current_gpt = loaded_gpt
+    if loaded_sovits:
+        engine._current_sovits = loaded_sovits
     await engine.start()
     app_instance.state.inference_engine = engine
 
