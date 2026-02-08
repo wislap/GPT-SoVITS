@@ -40,6 +40,10 @@ export default defineNuxtConfig({
         target: 'http://127.0.0.1:9881/api/v3',
         changeOrigin: true,
       },
+      '/api/v2': {
+        target: 'http://127.0.0.1:9881/api/v2',
+        changeOrigin: true,
+      },
     },
   },
 })

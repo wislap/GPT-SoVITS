@@ -62,6 +62,48 @@ export function useApi() {
     return apiFetch(`/scan/audio${query}`)
   }
 
+  // ─── v2 兼容端点 ───
+
+  async function setGptWeights(weightsPath: string): Promise<{ message: string }> {
+    return await $fetch(`/api/v2/set_gpt_weights?weights_path=${encodeURIComponent(weightsPath)}`)
+  }
+
+  async function setSovitsWeights(weightsPath: string): Promise<{ message: string }> {
+    return await $fetch(`/api/v2/set_sovits_weights?weights_path=${encodeURIComponent(weightsPath)}`)
+  }
+
+  async function getSettings(): Promise<Record<string, unknown>> {
+    return apiFetch('/settings')
+  }
+
+  async function saveSettings(data: Record<string, unknown>): Promise<{ status: string }> {
+    return apiFetch('/settings', { method: 'PUT', body: data })
+  }
+
+  async function ttsV2(params: Record<string, unknown>): Promise<Blob> {
+    return await $fetch<Blob>(`/api/v2/tts`, {
+      method: 'POST',
+      body: params,
+      responseType: 'blob',
+    })
+  }
+
+  // ─── v3 推理端点 ───
+
+  async function ttsSubmit(params: Record<string, unknown>): Promise<{ task_id: number; timestamp: number; status: string }> {
+    return apiFetch('/tts', { method: 'POST', body: params })
+  }
+
+  async function ttsTaskStatus(taskId: number): Promise<Record<string, unknown>> {
+    return apiFetch(`/tts/${taskId}`)
+  }
+
+  async function ttsTaskAudio(taskId: number): Promise<Blob> {
+    const config = useRuntimeConfig()
+    const base = (config.public.apiBase as string) || '/api/v3'
+    return await $fetch<Blob>(`${base}/tts/${taskId}/audio`, { responseType: 'blob' })
+  }
+
   return {
     getHealth,
     listVoices,
@@ -76,5 +118,13 @@ export function useApi() {
     scanGptWeights,
     scanSovitsWeights,
     scanAudio,
+    setGptWeights,
+    setSovitsWeights,
+    ttsV2,
+    ttsSubmit,
+    ttsTaskStatus,
+    ttsTaskAudio,
+    getSettings,
+    saveSettings,
   }
 }

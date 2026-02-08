@@ -351,3 +351,34 @@ def _find_voice_file(voice_id: str) -> Optional[Path]:
 async def afind_voice_file(voice_id: str) -> Optional[Path]:
     """_find_voice_file 的异步版本"""
     return await asyncio.to_thread(_find_voice_file, voice_id)
+
+
+# ─── 用户设置 ───
+
+SETTINGS_PATH = Path(__file__).resolve().parent / "settings.toml"
+
+
+def load_settings() -> dict:
+    """加载用户设置，不存在则返回默认值"""
+    if SETTINGS_PATH.exists():
+        try:
+            return _load_raw_toml(SETTINGS_PATH)
+        except Exception:
+            pass
+    return {"last_voice_id": "_default"}
+
+
+def save_settings(data: dict) -> None:
+    """保存用户设置到 settings.toml"""
+    if tomli_w is None:
+        raise RuntimeError("需要安装 tomli_w 才能写入 TOML: pip install tomli-w")
+    with open(SETTINGS_PATH, "wb") as f:
+        tomli_w.dump(data, f)
+
+
+async def aload_settings() -> dict:
+    return await asyncio.to_thread(load_settings)
+
+
+async def asave_settings(data: dict) -> None:
+    return await asyncio.to_thread(save_settings, data)

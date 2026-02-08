@@ -9,7 +9,7 @@ sovits_weights = "SoVITS_weights_v2ProPlus/克拉拉_e10_s230.pth"
 version = "v2ProPlus"
 
 [ref_audio]
-path = "【吃惊】还可以飞上天…飞到宇宙里哦！真的好厉害！.wav"
+path = "v2ProPlus/克拉拉/reference_audios/中文/emotions/【吃惊】还可以飞上天…飞到宇宙里哦！真的好厉害！.wav"
 prompt_text = "【吃惊】还可以飞上天…飞到宇宙里哦！真的好厉害！"
 prompt_lang = "all_zh"
 aux_ref_audio_paths = []
@@ -24,8 +24,8 @@ repetition_penalty = 1.35
 seed = -1
 batch_size = 1
 batch_threshold = 0.75
-split_bucket = true
-parallel_infer = true
+split_bucket = false
+parallel_infer = false
 speed_factor = 1.0
 fragment_interval = 0.3
 sample_steps = 32

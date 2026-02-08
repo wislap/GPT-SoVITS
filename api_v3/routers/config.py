@@ -21,6 +21,8 @@ from api_v3.config import (
     reload_default_config,
     _dict_to_voice_config,
     afind_voice_file,
+    aload_settings,
+    asave_settings,
 )
 
 
@@ -260,22 +262,49 @@ async def api_scan_sovits_weights(version: Optional[str] = Query(None, descripti
     return {"files": files}
 
 
+# 音频搜索根目录（与版本目录对应，训练工具标准输出结构）
+_AUDIO_SEARCH_ROOTS = [
+    "v1", "v2", "v3", "v4", "v2Pro", "v2ProPlus",
+    "voices", "reference_audios",
+]
+
+
 @router.get("/scan/audio", summary="扫描音频文件")
-async def api_scan_audio(dir: str = Query("voices", description="扫描目录（相对于项目根）")):
-    """扫描指定目录下的音频文件"""
-    target = (_PROJECT_ROOT / dir).resolve()
-    # 安全检查：不允许跳出项目根目录
-    if not str(target).startswith(str(_PROJECT_ROOT)):
-        raise HTTPException(status_code=400, detail="路径不合法")
-    if not target.is_dir():
-        return {"files": []}
+async def api_scan_audio(dir: Optional[str] = Query(None, description="扫描目录（相对于项目根），为空则自动搜索预定义目录")):
+    """扫描音频文件。不指定 dir 时自动搜索预定义的版本目录。"""
 
     def _scan():
         results = []
-        for f in sorted(target.rglob("*")):
-            if f.is_file() and f.suffix.lower() in _AUDIO_EXTENSIONS:
-                results.append(str(f.relative_to(_PROJECT_ROOT)))
+        if dir:
+            targets = [(_PROJECT_ROOT / dir).resolve()]
+        else:
+            targets = [_PROJECT_ROOT / d for d in _AUDIO_SEARCH_ROOTS]
+
+        for target in targets:
+            if not target.is_dir():
+                continue
+            # 安全检查
+            if not str(target.resolve()).startswith(str(_PROJECT_ROOT)):
+                continue
+            for f in sorted(target.rglob("*")):
+                if f.is_file() and f.suffix.lower() in _AUDIO_EXTENSIONS:
+                    results.append(str(f.relative_to(_PROJECT_ROOT)))
         return results
 
     files = await asyncio.to_thread(_scan)
     return {"files": files}
+
+
+# ─── 用户设置 ───
+
+@router.get("/settings", summary="获取用户设置")
+async def api_get_settings():
+    """读取 settings.toml"""
+    return await aload_settings()
+
+
+@router.put("/settings", summary="保存用户设置")
+async def api_put_settings(data: dict):
+    """写入 settings.toml"""
+    await asave_settings(data)
+    return {"status": "ok"}

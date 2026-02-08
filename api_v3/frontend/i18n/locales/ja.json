@@ -23,7 +23,9 @@
     "streaming": "ストリーミング",
     "result": "合成結果",
     "selectVoice": "音声を選択",
-    "noHistory": "合成履歴なし"
+    "noHistory": "合成履歴なし",
+    "apply": "適用",
+    "applied": "適用済み"
   },
   "params": {
     "title": "推論パラメータ",

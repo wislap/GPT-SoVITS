@@ -23,7 +23,9 @@
     "streaming": "스트리밍",
     "result": "합성 결과",
     "selectVoice": "음성 선택",
-    "noHistory": "합성 기록 없음"
+    "noHistory": "합성 기록 없음",
+    "apply": "적용",
+    "applied": "적용됨"
   },
   "params": {
     "title": "추론 매개변수",

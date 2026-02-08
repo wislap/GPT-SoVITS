@@ -23,7 +23,9 @@
     "streaming": "Streaming",
     "result": "Result",
     "selectVoice": "Select Voice",
-    "noHistory": "No synthesis history"
+    "noHistory": "No synthesis history",
+    "apply": "Apply",
+    "applied": "Applied"
   },
   "params": {
     "title": "Inference Parameters",

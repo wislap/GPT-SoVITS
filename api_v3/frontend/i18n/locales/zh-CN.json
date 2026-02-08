@@ -23,7 +23,9 @@
     "streaming": "流式合成",
     "result": "合成结果",
     "selectVoice": "选择声音",
-    "noHistory": "暂无合成记录"
+    "noHistory": "暂无合成记录",
+    "apply": "应用配置",
+    "applied": "已应用"
   },
   "params": {
     "title": "推理参数",
