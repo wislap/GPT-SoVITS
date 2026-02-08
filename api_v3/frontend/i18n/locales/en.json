@@ -78,7 +78,13 @@
     "streaming": "Streaming Mode",
     "returnFragment": "Return Fragment",
     "fixedChunk": "Fixed Length Chunk",
-    "confirmDelete": "Delete {count} voice profile(s)?"
+    "confirmDelete": "Delete {count} voice profile(s)?",
+    "scanMode": "Scan Mode",
+    "manualMode": "Manual Input",
+    "noFiles": "No files found",
+    "selectFile": "Select file...",
+    "extractFilename": "Extract from filename",
+    "promptTextPlaceholder": "Text corresponding to the reference audio"
   },
   "settings": {
     "title": "Default Config",

@@ -78,7 +78,13 @@
     "streaming": "流式模式",
     "returnFragment": "返回片段",
     "fixedChunk": "固定长度分块",
-    "confirmDelete": "确定删除 {count} 个声音配置？"
+    "confirmDelete": "确定删除 {count} 个声音配置？",
+    "scanMode": "扫描模式",
+    "manualMode": "手动输入",
+    "noFiles": "未找到文件",
+    "selectFile": "选择文件...",
+    "extractFilename": "从文件名提取",
+    "promptTextPlaceholder": "参考音频对应的文本"
   },
   "settings": {
     "title": "默认配置",

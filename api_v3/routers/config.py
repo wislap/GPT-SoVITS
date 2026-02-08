@@ -4,9 +4,12 @@ GPT-SoVITS API v3 - 配置管理路由
 提供声音配置的 CRUD 接口。
 """
 
+import asyncio
 from dataclasses import asdict
+from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api_v3.config import (
@@ -209,3 +212,70 @@ async def api_reload_config():
     """重新加载默认配置缓存（修改 default.toml 后调用）"""
     reload_default_config()
     return {"status": "ok", "message": "默认配置已重新加载"}
+
+
+# ─── 文件扫描 ───
+
+# 项目根目录（GPT-SoVITS/）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# 权重文件夹映射（version → 文件夹名）
+_GPT_WEIGHT_ROOTS = {
+    "v1": "GPT_weights", "v2": "GPT_weights_v2", "v3": "GPT_weights_v3",
+    "v4": "GPT_weights_v4", "v2Pro": "GPT_weights_v2Pro", "v2ProPlus": "GPT_weights_v2ProPlus",
+}
+_SOVITS_WEIGHT_ROOTS = {
+    "v1": "SoVITS_weights", "v2": "SoVITS_weights_v2", "v3": "SoVITS_weights_v3",
+    "v4": "SoVITS_weights_v4", "v2Pro": "SoVITS_weights_v2Pro", "v2ProPlus": "SoVITS_weights_v2ProPlus",
+}
+
+_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
+
+
+def _scan_weights(root_map: dict, extensions: set, version: Optional[str] = None) -> list[str]:
+    """扫描权重文件，返回相对于项目根目录的路径列表"""
+    results = []
+    dirs = {version: root_map[version]} if version and version in root_map else root_map
+    for ver, dirname in dirs.items():
+        folder = _PROJECT_ROOT / dirname
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.rglob("*")):
+            if f.is_file() and f.suffix.lower() in extensions:
+                results.append(str(f.relative_to(_PROJECT_ROOT)))
+    return results
+
+
+@router.get("/scan/gpt-weights", summary="扫描 GPT 权重文件")
+async def api_scan_gpt_weights(version: Optional[str] = Query(None, description="按版本过滤")):
+    """扫描 GPT_weights* 目录下的 .ckpt 文件"""
+    files = await asyncio.to_thread(_scan_weights, _GPT_WEIGHT_ROOTS, {".ckpt"}, version)
+    return {"files": files}
+
+
+@router.get("/scan/sovits-weights", summary="扫描 SoVITS 权重文件")
+async def api_scan_sovits_weights(version: Optional[str] = Query(None, description="按版本过滤")):
+    """扫描 SoVITS_weights* 目录下的 .pth 文件"""
+    files = await asyncio.to_thread(_scan_weights, _SOVITS_WEIGHT_ROOTS, {".pth"}, version)
+    return {"files": files}
+
+
+@router.get("/scan/audio", summary="扫描音频文件")
+async def api_scan_audio(dir: str = Query("voices", description="扫描目录（相对于项目根）")):
+    """扫描指定目录下的音频文件"""
+    target = (_PROJECT_ROOT / dir).resolve()
+    # 安全检查：不允许跳出项目根目录
+    if not str(target).startswith(str(_PROJECT_ROOT)):
+        raise HTTPException(status_code=400, detail="路径不合法")
+    if not target.is_dir():
+        return {"files": []}
+
+    def _scan():
+        results = []
+        for f in sorted(target.rglob("*")):
+            if f.is_file() and f.suffix.lower() in _AUDIO_EXTENSIONS:
+                results.append(str(f.relative_to(_PROJECT_ROOT)))
+        return results
+
+    files = await asyncio.to_thread(_scan)
+    return {"files": files}

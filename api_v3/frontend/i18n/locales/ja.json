@@ -78,7 +78,13 @@
     "streaming": "ストリーミングモード",
     "returnFragment": "フラグメント返却",
     "fixedChunk": "固定長チャンク",
-    "confirmDelete": "{count}件の音声プロファイルを削除しますか？"
+    "confirmDelete": "{count}件の音声プロファイルを削除しますか？",
+    "scanMode": "スキャンモード",
+    "manualMode": "手動入力",
+    "noFiles": "ファイルが見つかりません",
+    "selectFile": "ファイルを選択...",
+    "extractFilename": "ファイル名から抽出",
+    "promptTextPlaceholder": "参照音声に対応するテキスト"
   },
   "settings": {
     "title": "デフォルト設定",

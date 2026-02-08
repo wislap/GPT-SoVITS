@@ -47,6 +47,21 @@ export function useApi() {
     return apiFetch('/voices/batch-delete', { method: 'POST', body: { ids } })
   }
 
+  async function scanGptWeights(version?: string): Promise<{ files: string[] }> {
+    const query = version ? `?version=${version}` : ''
+    return apiFetch(`/scan/gpt-weights${query}`)
+  }
+
+  async function scanSovitsWeights(version?: string): Promise<{ files: string[] }> {
+    const query = version ? `?version=${version}` : ''
+    return apiFetch(`/scan/sovits-weights${query}`)
+  }
+
+  async function scanAudio(dir?: string): Promise<{ files: string[] }> {
+    const query = dir ? `?dir=${encodeURIComponent(dir)}` : ''
+    return apiFetch(`/scan/audio${query}`)
+  }
+
   return {
     getHealth,
     listVoices,
@@ -58,5 +73,8 @@ export function useApi() {
     updateVoice,
     deleteVoice,
     batchDeleteVoices,
+    scanGptWeights,
+    scanSovitsWeights,
+    scanAudio,
   }
 }
