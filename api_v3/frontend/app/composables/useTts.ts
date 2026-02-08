@@ -120,108 +120,186 @@ export function useTts() {
     return item
   }
 
-  // ─── WebSocket 模式：流式接收 + 实时播放 ───
+  // ─── 双向流式 WebSocket 会话（stream-input 协议）───
 
-  async function synthesizeWs(params: {
-    text: string
+  // 会话状态
+  const wsConnected = useState<boolean>('wsConnected', () => false)
+  const wsSentences = useState<number>('wsSentences', () => 0)
+  let _ws: WebSocket | null = null
+  let _allChunks: ArrayBuffer[] = []
+  let _currentSentenceChunks: ArrayBuffer[] = []
+  let _onChunkCb: ((chunk: ArrayBuffer) => void) | null = null
+  let _sessionItem: SynthesisHistoryItem | null = null
+
+  /**
+   * 打开双向流式 WS 会话：发送 init 指令，等待 ready
+   */
+  function wsOpen(params: {
     voice_id: string
     voice_name: string
     overrides?: Record<string, unknown>
     onChunk?: (chunk: ArrayBuffer) => void
-  }): Promise<SynthesisHistoryItem> {
-    const item = _createItem(params)
-    history.value.unshift(item)
-    synthesizing.value = true
-    item.status = 'synthesizing'
-    streamStatus.value = 'connecting'
+  }): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        resolve()
+        return
+      }
 
-    return new Promise((resolve) => {
-      const chunks: ArrayBuffer[] = []
-      const wsUrl = _buildWsUrl()
+      _onChunkCb = params.onChunk || null
+      _allChunks = []
+      _currentSentenceChunks = []
+      wsSentences.value = 0
+      streamStatus.value = 'connecting'
+
+      // 创建一个会话级的 history item
+      _sessionItem = {
+        id: Date.now().toString(),
+        text: '',
+        voice_id: params.voice_id,
+        voice_name: params.voice_name,
+        params: params.overrides || {},
+        audio_url: null,
+        timestamp: Date.now(),
+        status: 'synthesizing',
+      }
+      history.value.unshift(_sessionItem)
+      _sessionItem = history.value[0]!  // 取 Vue 代理后的引用
+      synthesizing.value = true
+
+      const wsUrl = _buildWsUrl('/api/v3/tts/stream-input')
       const ws = new WebSocket(wsUrl)
-
       ws.binaryType = 'arraybuffer'
+      _ws = ws
+
+      let initResolved = false
 
       ws.onopen = () => {
-        streamStatus.value = 'queued'
-        const body: Record<string, unknown> = {
-          text: params.text,
+        // 发送 init 指令
+        const initMsg: Record<string, unknown> = {
+          cmd: 'init',
           voice_id: params.voice_id,
           ...params.overrides,
         }
-        ws.send(JSON.stringify(body))
+        ws.send(JSON.stringify(initMsg))
       }
 
       ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
-          // 二进制：音频 chunk
-          chunks.push(event.data)
+          _allChunks.push(event.data)
+          _currentSentenceChunks.push(event.data)
           streamStatus.value = 'streaming'
-          params.onChunk?.(event.data)
+          _onChunkCb?.(event.data)
         } else {
-          // JSON 消息
           try {
             const msg = JSON.parse(event.data)
-            if (msg.type === 'accepted') {
-              item.id = String(msg.task_id)
-              streamStatus.value = 'queued'
-            } else if (msg.type === 'status') {
-              streamStatus.value = msg.status
+            console.log('[stream-input] msg:', msg)
+            if (msg.type === 'ready') {
+              wsConnected.value = true
+              streamStatus.value = 'ready'
+              if (!initResolved) { initResolved = true; resolve() }
+            } else if (msg.type === 'sentence') {
+              streamStatus.value = `合成: ${msg.text}`
+              _currentSentenceChunks = []
+            } else if (msg.type === 'sentence_done') {
+              wsSentences.value++
+              streamStatus.value = `已完成 ${wsSentences.value} 句`
+            } else if (msg.type === 'flushed') {
+              streamStatus.value = 'flushed'
             } else if (msg.type === 'done') {
-              // 合并所有 WAV chunk 为单个完整 WAV
-              const blob = mergeWavChunks(chunks)
-              item.audio_url = URL.createObjectURL(blob)
-              item.status = 'done'
-              _finish(resolve, item)
-              ws.close()
+              console.log('[stream-input] session done, finalizing...')
+              _finalizeSession()
             } else if (msg.type === 'error') {
-              item.status = 'error'
-              item.error = msg.message
-              _finish(resolve, item)
-              ws.close()
+              console.error('[stream-input] error:', msg.message)
+              if (!initResolved) { initResolved = true; reject(new Error(msg.message)) }
+              streamStatus.value = `错误: ${msg.message}`
             }
           } catch { /* 忽略非 JSON */ }
         }
       }
 
       ws.onerror = () => {
-        item.status = 'error'
-        item.error = 'WebSocket 连接失败'
-        _finish(resolve, item)
+        if (!initResolved) { initResolved = true; reject(new Error('WebSocket 连接失败')) }
+        wsConnected.value = false
+        streamStatus.value = ''
       }
 
-      ws.onclose = () => {
-        if (item.status === 'synthesizing') {
-          // 意外关闭
-          if (chunks.length > 0) {
-            const blob = mergeWavChunks(chunks)
-            item.audio_url = URL.createObjectURL(blob)
-            item.status = 'done'
-          } else {
-            item.status = 'error'
-            item.error = '连接意外关闭'
-          }
-          _finish(resolve, item)
+      ws.onclose = (ev) => {
+        console.log('[stream-input] ws closed, code:', ev.code, 'reason:', ev.reason)
+        wsConnected.value = false
+        if (_sessionItem && _sessionItem.status === 'synthesizing') {
+          console.log('[stream-input] unexpected close, finalizing...')
+          _finalizeSession()
         }
+        _ws = null
+        streamStatus.value = ''
       }
     })
   }
 
-  function _finish(resolve: (item: SynthesisHistoryItem) => void, item: SynthesisHistoryItem) {
-    synthesizing.value = false
-    streamStatus.value = ''
-    resolve(item)
+  /**
+   * 通过已有 WS 连接发送文本
+   */
+  function wsSendText(text: string) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return
+    // 更新 history item 的文本
+    if (_sessionItem) {
+      _sessionItem.text += (_sessionItem.text ? '\n' : '') + text
+    }
+    _ws.send(JSON.stringify({ cmd: 'text', data: text }))
   }
 
-  function _buildWsUrl(): string {
+  /**
+   * 强制合成缓冲区中的剩余文本
+   */
+  function wsFlush() {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return
+    _ws.send(JSON.stringify({ cmd: 'flush' }))
+    streamStatus.value = 'flushing...'
+  }
+
+  /**
+   * 结束会话：flush + 关闭
+   */
+  function wsEnd() {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return
+    _ws.send(JSON.stringify({ cmd: 'end' }))
+    streamStatus.value = 'ending...'
+  }
+
+  /**
+   * 会话结束时的清理
+   */
+  function _finalizeSession() {
+    if (_sessionItem) {
+      if (_allChunks.length > 0) {
+        const blob = mergeWavChunks(_allChunks)
+        _sessionItem.audio_url = URL.createObjectURL(blob)
+        _sessionItem.status = 'done'
+      } else {
+        _sessionItem.status = _sessionItem.text ? 'error' : 'done'
+        if (!_sessionItem.text) _sessionItem.error = '无音频数据'
+      }
+    }
+    synthesizing.value = false
+    wsConnected.value = false
+    streamStatus.value = ''
+    wsSentences.value = 0
+    _allChunks = []
+    _currentSentenceChunks = []
+    _sessionItem = null
+    _ws = null
+  }
+
+  function _buildWsUrl(path: string = '/api/v3/tts/stream'): string {
     const loc = window.location
     // 开发模式下直连后端 9881 端口（Nuxt devProxy 不代理 WS）
     const isDev = loc.port === '3000' || loc.port === '3001'
     if (isDev) {
-      return `ws://${loc.hostname}:9881/api/v3/tts/stream`
+      return `ws://${loc.hostname}:9881${path}`
     }
     const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${loc.host}/api/v3/tts/stream`
+    return `${protocol}//${loc.host}${path}`
   }
 
   function _createItem(params: { text: string; voice_id: string; voice_name: string; overrides?: Record<string, unknown> }): SynthesisHistoryItem {
@@ -248,8 +326,13 @@ export function useTts() {
     history,
     synthesizing,
     streamStatus,
+    wsConnected,
+    wsSentences,
     synthesize,
-    synthesizeWs,
+    wsOpen,
+    wsSendText,
+    wsFlush,
+    wsEnd,
     clearHistory,
   }
 }

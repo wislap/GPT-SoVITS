@@ -62,12 +62,13 @@
           <div class="flex items-center gap-2">
             <span class="text-xs text-gray-400">{{ inputText.length }} {{ $t('common.chars') }} · Ctrl+Enter</span>
             <span v-if="streamStatus" class="text-xs text-indigo-500 animate-pulse">
-              {{ streamStatus }}<template v-if="streamPlayer.chunksReceived.value > 0"> · {{ streamPlayer.chunksReceived.value }} chunks</template>
+              {{ streamStatus }}<template v-if="wsSentences > 0"> · {{ wsSentences }} 句</template>
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <!-- WS/REST 切换 -->
+            <!-- WS/REST 切换（仅在未连接时可切换） -->
             <button
+              :disabled="wsConnected"
               class="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors"
               :class="useWebSocket
                 ? 'border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20'
@@ -76,12 +77,32 @@
             >
               {{ useWebSocket ? 'WS' : 'REST' }}
             </button>
+
+            <!-- WS 模式：连接后显示「强制合成」「结束」按钮 -->
+            <template v-if="useWebSocket && wsConnected">
+              <button
+                class="px-3 py-2 rounded-lg text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+                @click="handleWsFlush"
+              >
+                ⚡ 强制合成
+              </button>
+              <button
+                class="px-3 py-2 rounded-lg text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                @click="handleWsEnd"
+              >
+                ■ 结束
+              </button>
+            </template>
+
+            <!-- 合成/发送按钮 -->
             <button
               :disabled="!canSynthesize"
               class="px-5 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               @click="handleSynthesize"
             >
-              {{ synthesizing ? '...' : $t('tts.synthesize') }}
+              {{ synthesizing
+                ? (useWebSocket && wsConnected ? '📤 发送' : '...')
+                : $t('tts.synthesize') }}
             </button>
           </div>
         </div>
@@ -189,7 +210,7 @@ import { TEXT_LANGUAGES, SPLIT_METHODS } from '~/types'
 
 const api = useApi()
 const { voices, currentVoiceConfig: currentConfig, fetchVoices, selectVoice } = useVoices()
-const { history, synthesizing, streamStatus, synthesize, synthesizeWs, clearHistory } = useTts()
+const { history, synthesizing, streamStatus, wsConnected, wsSentences, synthesize, wsOpen, wsSendText, wsFlush, wsEnd, clearHistory } = useTts()
 const useWebSocket = ref(true)
 const streamPlayer = useStreamPlayer()
 
@@ -218,6 +239,10 @@ const modelMatched = computed(() => {
 const refParams = ref<Record<string, number> | null>(null)
 
 const canSynthesize = computed(() => {
+  // WS 模式下连接后仍可发送新文本
+  if (useWebSocket.value && wsConnected.value) {
+    return inputText.value.trim().length > 0
+  }
   return inputText.value.trim().length > 0 && currentConfig.value && !synthesizing.value
 })
 
@@ -298,30 +323,53 @@ async function handleSynthesize() {
     batch_size: batchSize.value,
   }
 
-  let result
   if (useWebSocket.value) {
-    // 初始化流式播放器
-    streamPlayer.init()
-    result = await synthesizeWs({
-      text: inputText.value,
-      voice_id: selectedVoiceId.value,
-      voice_name: voiceName,
-      overrides,
-      onChunk: (chunk: ArrayBuffer) => {
-        streamPlayer.feedChunk(chunk)
-      },
-    })
+    if (wsConnected.value) {
+      // 已连接：追加文本
+      wsSendText(inputText.value)
+      inputText.value = ''
+    } else {
+      // 未连接：打开会话 + 发送首段文本
+      streamPlayer.init()
+      try {
+        await wsOpen({
+          voice_id: selectedVoiceId.value,
+          voice_name: voiceName,
+          overrides,
+          onChunk: (chunk: ArrayBuffer) => {
+            streamPlayer.feedChunk(chunk)
+          },
+        })
+        // 连接成功后发送文本
+        wsSendText(inputText.value)
+        inputText.value = ''
+      } catch (e: any) {
+        alert(e?.message || 'WS 连接失败')
+      }
+    }
   } else {
-    result = await synthesize({
+    const result = await synthesize({
       text: inputText.value,
       voice_id: selectedVoiceId.value,
       voice_name: voiceName,
       overrides,
     })
+    // 合成成功后更新已应用的模型状态
+    if (result.status === 'done' && currentConfig.value) {
+      appliedGpt.value = currentConfig.value.model.gpt_weights
+      appliedSovits.value = currentConfig.value.model.sovits_weights
+    }
   }
+}
 
+function handleWsFlush() {
+  wsFlush()
+}
+
+function handleWsEnd() {
+  wsEnd()
   // 合成成功后更新已应用的模型状态
-  if (result.status === 'done' && currentConfig.value) {
+  if (currentConfig.value) {
     appliedGpt.value = currentConfig.value.model.gpt_weights
     appliedSovits.value = currentConfig.value.model.sovits_weights
   }

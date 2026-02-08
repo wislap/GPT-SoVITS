@@ -2,13 +2,15 @@
 GPT-SoVITS API v3 - TTS 推理路由 (v3)
 
 基于推理引擎的双队列架构：
-- POST /api/v3/tts          提交推理任务，返回 task_id
-- GET  /api/v3/tts/{id}     查询任务状态
-- GET  /api/v3/tts/{id}/audio  获取完整音频（等待完成）
-- WS   /api/v3/tts/stream   WebSocket 流式：提交+实时获取
-- GET  /api/v3/tts/queue     查看队列状态
+- POST /api/v3/tts              提交推理任务，返回 task_id
+- GET  /api/v3/tts/{id}         查询任务状态
+- GET  /api/v3/tts/{id}/audio   获取完整音频（等待完成）
+- WS   /api/v3/tts/stream       WebSocket 流式：提交+实时获取
+- WS   /api/v3/tts/stream-input 双向流式：文本流入+音频流出
+- GET  /api/v3/tts/queue        查看队列状态
 """
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
@@ -260,6 +262,275 @@ async def tts_ws_stream(websocket: WebSocket):
         except Exception:
             pass
     finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ─── 双向流式 WebSocket：文本流入 + 音频流出 ───
+
+# 句子边界标点（与 text_segmentation_method.py 中 splits 一致）
+_SENTENCE_SPLITS = {"，", "。", "？", "！", ",", ".", "?", "!", "~", ":", "：", "—", "…"}
+
+
+class _TextBuffer:
+    """
+    文本缓冲区：累积文本，检测句子边界，提取完整句子。
+
+    调用 append(text) 追加文本，extract_sentences() 返回已完成的句子列表。
+    flush() 返回缓冲区中所有剩余文本（即使不以标点结尾）。
+    """
+
+    def __init__(self):
+        self._buf: str = ""
+
+    def append(self, text: str):
+        self._buf += text
+
+    def extract_sentences(self) -> list[str]:
+        """提取缓冲区中所有以标点结尾的完整句子"""
+        sentences: list[str] = []
+        # 从后往前找最后一个标点位置
+        last_split = -1
+        for i, ch in enumerate(self._buf):
+            if ch in _SENTENCE_SPLITS:
+                last_split = i
+
+        if last_split < 0:
+            return sentences
+
+        # 截取到最后一个标点（含标点）
+        completed = self._buf[: last_split + 1]
+        self._buf = self._buf[last_split + 1 :]
+
+        # 按标点切分为多个句子
+        current = ""
+        for ch in completed:
+            current += ch
+            if ch in _SENTENCE_SPLITS:
+                s = current.strip()
+                if s:
+                    sentences.append(s)
+                current = ""
+        if current.strip():
+            sentences.append(current.strip())
+
+        return sentences
+
+    def flush(self) -> str:
+        """返回缓冲区中所有剩余文本并清空"""
+        text = self._buf.strip()
+        self._buf = ""
+        return text
+
+    @property
+    def content(self) -> str:
+        return self._buf
+
+
+@router.websocket("/tts/stream-input")
+async def tts_ws_stream_input(websocket: WebSocket):
+    """
+    双向流式 WebSocket：客户端高频发送文本片段，服务端自动切句并流式返回音频。
+    接收和发送完全非阻塞，通过 task_queue 解耦。
+
+    协议：
+    ── 客户端 → 服务端（JSON）──
+    1. {cmd:"init", voice_id:"...", text_lang:"...", ...overrides}  初始化配置
+    2. {cmd:"text", data:"完整文本段落"}                             直接提交推理
+    3. {cmd:"append", data:"碎片..."}                               追加到缓冲区（自动切句）
+    4. {cmd:"flush"}                                                立即合成缓冲区剩余文本
+    5. {cmd:"end"}                                                  结束，清空并关闭
+
+    ── 服务端 → 客户端 ──
+    1. {type:"ready"}                                               初始化成功
+    2. {type:"sentence", text:"...", task_id:N}                     开始合成某句
+    3. Binary: WAV chunk                                            音频数据
+    4. {type:"sentence_done", task_id:N}                            某句合成完成
+    5. {type:"flushed"}                                             flush 完成
+    6. {type:"done"}                                                全部完成（end 后）
+    7. {type:"error", message:"..."}                                错误
+    """
+    await websocket.accept()
+
+    engine = websocket.app.state.inference_engine
+    voice_cfg: Optional[VoiceConfig] = None
+    session_voice_id: str = "_default"
+    overrides: dict = {}
+    text_buffer = _TextBuffer()
+
+    # task_queue: 接收协程 → 发送协程 的通信通道
+    # 放入 InferTask 表示有新任务，放入 None 表示会话结束
+    task_queue: asyncio.Queue = asyncio.Queue()
+    # send_lock: 防止并发写 WS（WebSocket 不支持并发 send）
+    send_lock = asyncio.Lock()
+
+    async def _safe_send_json(data: dict):
+        async with send_lock:
+            await websocket.send_json(data)
+
+    async def _safe_send_bytes(data: bytes):
+        async with send_lock:
+            await websocket.send_bytes(data)
+
+    async def _submit_text(text: str):
+        """将一段文本提交为推理任务"""
+        if not text.strip() or voice_cfg is None:
+            return
+        tts_params = _build_tts_params(voice_cfg, text, overrides)
+        media_type = overrides.get("media_type") or voice_cfg.output.media_type
+
+        task = await engine.submit(
+            voice_id=session_voice_id,
+            gpt_weights=voice_cfg.model.gpt_weights,
+            sovits_weights=voice_cfg.model.sovits_weights,
+            tts_params=tts_params,
+            media_type=media_type,
+        )
+
+        await _safe_send_json({
+            "type": "sentence",
+            "text": text,
+            "task_id": task.task_id,
+        })
+
+        # 放入发送队列
+        await task_queue.put(task)
+
+    # ─── 发送协程：从 task_queue 取任务，按顺序推送音频 ───
+
+    async def _sender():
+        """后台协程：按顺序推送每个 task 的音频 chunk"""
+        try:
+            while True:
+                task = await task_queue.get()
+                if task is None:
+                    break
+
+                sent_index = 0
+                while not task.output.done or sent_index < len(task.output.chunks):
+                    while sent_index < len(task.output.chunks):
+                        chunk = task.output.chunks[sent_index]
+                        await _safe_send_bytes(chunk.data)
+                        sent_index += 1
+
+                    if not task.output.done:
+                        await task.output.wait_for_update(timeout=5.0)
+
+                if task.output.error:
+                    await _safe_send_json({"type": "error", "message": task.output.error})
+                else:
+                    await _safe_send_json({
+                        "type": "sentence_done",
+                        "task_id": task.task_id,
+                        "chunks_sent": sent_index,
+                    })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                await _safe_send_json({"type": "error", "message": f"sender error: {e}"})
+            except Exception:
+                pass
+
+    # 启动发送协程
+    sender_task = asyncio.create_task(_sender())
+
+    # ─── 接收循环：处理客户端指令 ───
+
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0)
+            except asyncio.TimeoutError:
+                await _safe_send_json({"type": "error", "message": "session timeout"})
+                break
+
+            cmd = data.get("cmd", "")
+
+            if cmd == "init":
+                voice_id = data.get("voice_id", "_default")
+                try:
+                    voice_cfg = _load_voice_config(voice_id)
+                except FileNotFoundError:
+                    await _safe_send_json({"type": "error", "message": f"voice_id '{voice_id}' not found"})
+                    break
+
+                session_voice_id = voice_id
+                overrides = {k: data.get(k) for k in [
+                    "text_lang", "speed_factor", "temperature", "top_k", "top_p",
+                    "seed", "batch_size", "text_split_method", "media_type",
+                ] if data.get(k) is not None}
+
+                await _safe_send_json({"type": "ready", "voice_id": voice_id})
+
+            elif cmd == "text":
+                # 直接提交整段文本进行推理（TTS 引擎内部会按 text_split_method 切分）
+                if voice_cfg is None:
+                    await _safe_send_json({"type": "error", "message": "not initialized, send init first"})
+                    continue
+
+                text_data = data.get("data", "").strip()
+                if text_data:
+                    await _submit_text(text_data)
+
+            elif cmd == "append":
+                # 碎片累积模式：追加到缓冲区，自动检测句子边界
+                if voice_cfg is None:
+                    await _safe_send_json({"type": "error", "message": "not initialized, send init first"})
+                    continue
+
+                text_buffer.append(data.get("data", ""))
+                for sentence in text_buffer.extract_sentences():
+                    await _submit_text(sentence)
+
+            elif cmd == "flush":
+                if voice_cfg is None:
+                    continue
+                remaining = text_buffer.flush()
+                if remaining:
+                    await _submit_text(remaining)
+                # flushed 信号在所有 flush 产生的任务完成后由 sender 隐式完成
+                # 这里放一个标记任务（None 不行，因为 None 是结束信号）
+                # 改为：直接发 flushed，客户端通过 sentence_done 知道每句完成
+                await _safe_send_json({"type": "flushed"})
+
+            elif cmd == "end":
+                print(f"[stream-input] end cmd received, queue size: {task_queue.qsize()}")
+                if voice_cfg is not None:
+                    remaining = text_buffer.flush()
+                    if remaining:
+                        await _submit_text(remaining)
+
+                # 发送结束信号给 sender
+                await task_queue.put(None)
+                print("[stream-input] waiting for sender to finish...")
+                # 等待 sender 完成所有推送
+                await sender_task
+                print("[stream-input] sender finished, sending done")
+                await _safe_send_json({"type": "done"})
+                break
+
+            else:
+                await _safe_send_json({"type": "error", "message": f"unknown cmd: {cmd}"})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await _safe_send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+    finally:
+        # 确保 sender 协程退出
+        if not sender_task.done():
+            await task_queue.put(None)
+            sender_task.cancel()
+            try:
+                await sender_task
+            except (asyncio.CancelledError, Exception):
+                pass
         try:
             await websocket.close()
         except Exception:
