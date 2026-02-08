@@ -1,0 +1,31 @@
+# GPT-SoVITS API v3 默认配置
+# 所有声音配置会继承此文件的参数，声音自身的配置会覆盖这里的值
+# 修改此文件可以统一调整所有声音的默认行为
+
+[params]
+text_lang = "all_zh"
+text_split_method = "cut5"
+top_k = 15
+top_p = 1.0
+temperature = 1.0
+repetition_penalty = 1.35
+seed = -1
+batch_size = 1
+batch_threshold = 0.75
+split_bucket = true
+parallel_infer = true
+speed_factor = 1.0
+fragment_interval = 0.3
+sample_steps = 32
+super_sampling = false
+streaming_mode = false
+return_fragment = false
+overlap_length = 2
+min_chunk_length = 16
+fixed_length_chunk = false
+
+[ref_audio]
+prompt_lang = "all_zh"
+
+[output]
+media_type = "wav"

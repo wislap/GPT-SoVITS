@@ -193,3 +193,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Local data / backups
+v2ProPlus/
+*.zip
+*.bak
