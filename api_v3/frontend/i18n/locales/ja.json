@@ -48,7 +48,21 @@
     "switch": "切替",
     "current": "現在のモデル",
     "loading": "モデル読み込み中...",
-    "version": "バージョン"
+    "version": "バージョン",
+    "all": "すべて",
+    "allVersions": "全バージョン",
+    "items": "件",
+    "noModels": "モデルが見つかりません",
+    "unknown": "不明",
+    "incomplete": "不完全",
+    "notFound": "見つかりません",
+    "dir": "ディレクトリ",
+    "files": "ファイル",
+    "missing": "欠落",
+    "modified": "更新日時",
+    "convertToOnnx": "ONNXに変換",
+    "startConvert": "変換開始",
+    "outputDir": "出力ディレクトリ"
   },
   "config": {
     "defaultConfig": "デフォルト設定",
@@ -109,6 +123,7 @@
     "status": "サービス状態",
     "voiceCount": "音声数",
     "apiVersion": "APIバージョン",
+    "backendType": "推論バックエンド",
     "chars": "文字"
   }
 }

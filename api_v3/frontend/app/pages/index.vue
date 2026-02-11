@@ -30,13 +30,14 @@
       </div>
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
-            <span class="text-lg">📦</span>
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+            :class="health?.backend === 'genie' ? 'bg-amber-50 dark:bg-amber-900/30' : 'bg-purple-50 dark:bg-purple-900/30'">
+            <span class="text-lg">{{ health?.backend === 'genie' ? '⚡' : '🔥' }}</span>
           </div>
           <div>
-            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('common.apiVersion') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('common.backendType') }}</p>
             <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {{ health?.version ?? '-' }}
+              {{ backendLabel }}
             </p>
           </div>
         </div>
@@ -90,6 +91,13 @@ import type { HealthResponse, VoiceListItem } from '~/types'
 const api = useApi()
 const health = ref<HealthResponse | null>(null)
 const voices = ref<VoiceListItem[]>([])
+
+const backendLabel = computed(() => {
+  const b = health.value?.backend
+  if (b === 'genie') return 'Genie-TTS (ONNX)'
+  if (b === 'gsv') return 'GPT-SoVITS (PyTorch)'
+  return b || '-'
+})
 
 onMounted(async () => {
   try {

@@ -8,6 +8,8 @@ export interface ModelConfig {
   gpt_weights: string
   sovits_weights: string
   version: string
+  onnx_model_dir: string
+  backend: string
 }
 
 export interface RefAudioConfig {
@@ -62,6 +64,7 @@ export interface VoiceListItem {
 export interface HealthResponse {
   status: string
   version: string
+  backend: string
   voices_count: number
 }
 
@@ -117,3 +120,50 @@ export const MEDIA_TYPES = [
   { value: 'ogg', label: 'OGG' },
   { value: 'aac', label: 'AAC' },
 ] as const
+
+export interface ModelWeightFile {
+  path: string
+  filename: string
+  version: string
+  character: string
+  epoch: number | null
+  step: number | null
+  size_bytes: number
+  modified: string
+}
+
+export interface ModelEntry {
+  type: 'pytorch' | 'onnx'
+  version: string
+  character: string
+  total_size_bytes: number
+  modified: string
+  voice_id: string
+  // PyTorch 特有
+  gpt?: ModelWeightFile | null
+  sovits?: ModelWeightFile | null
+  // ONNX 特有
+  onnx_model_dir?: string
+  complete?: boolean
+  missing_files?: string[]
+  has_fp16?: boolean
+  has_prompt_encoder?: boolean
+  file_count?: number
+}
+
+export interface ModelsResponse {
+  models: ModelEntry[]
+  total: number
+}
+
+export interface ConvertTask {
+  id: string
+  status: 'pending' | 'running' | 'done' | 'error'
+  progress: number
+  message: string
+  gpt_weights: string
+  sovits_weights: string
+  output_dir: string
+  created_at: number
+  finished_at: number
+}

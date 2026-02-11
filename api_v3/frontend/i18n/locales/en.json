@@ -48,7 +48,21 @@
     "switch": "Switch",
     "current": "Current Model",
     "loading": "Loading model...",
-    "version": "Version"
+    "version": "Version",
+    "all": "All",
+    "allVersions": "All Versions",
+    "items": "items",
+    "noModels": "No model files found",
+    "unknown": "Unknown",
+    "incomplete": "Incomplete",
+    "notFound": "Not found",
+    "dir": "Dir",
+    "files": "Files",
+    "missing": "Missing",
+    "modified": "Modified",
+    "convertToOnnx": "Convert to ONNX",
+    "startConvert": "Start Convert",
+    "outputDir": "Output Directory"
   },
   "config": {
     "defaultConfig": "Default Config",
@@ -109,6 +123,7 @@
     "status": "Service Status",
     "voiceCount": "Voice Count",
     "apiVersion": "API Version",
+    "backendType": "Backend",
     "chars": "chars"
   }
 }

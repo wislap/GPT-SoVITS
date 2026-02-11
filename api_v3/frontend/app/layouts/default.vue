@@ -26,7 +26,7 @@
         <div class="flex items-center justify-center lg:justify-start gap-2">
           <div class="w-2 h-2 rounded-full" :class="connected ? 'bg-green-500' : 'bg-red-500'" />
           <span class="text-xs text-gray-500 dark:text-gray-400 hidden lg:block">
-            {{ connected ? 'API v3.0' : $t('common.offline') }}
+            {{ connected ? backendShort : $t('common.offline') }}
           </span>
         </div>
       </div>
@@ -66,6 +66,14 @@ const { locale, locales, setLocale, t } = useI18n()
 
 const currentLocale = ref(locale.value)
 const connected = ref(false)
+const backendName = ref('')
+
+const backendShort = computed(() => {
+  const b = backendName.value
+  if (b === 'genie') return '⚡ Genie (ONNX)'
+  if (b === 'gsv') return '🔥 GSV (PyTorch)'
+  return b || 'API v3'
+})
 
 const availableLocales = computed(() =>
   (locales.value as Array<{ code: string; name: string }>).map(l => ({
@@ -77,6 +85,7 @@ const availableLocales = computed(() =>
 const navItems = [
   { path: '/', icon: '📊', label: 'nav.home' },
   { path: '/tts', icon: '🎤', label: 'nav.tts' },
+  { path: '/models', icon: '📦', label: 'nav.models' },
   { path: '/config', icon: '⚙️', label: 'nav.settings' },
 ]
 
@@ -92,8 +101,9 @@ function onLocaleChange() {
 onMounted(async () => {
   try {
     const api = useApi()
-    await api.getHealth()
+    const health = await api.getHealth()
     connected.value = true
+    backendName.value = health.backend || ''
   } catch {
     connected.value = false
   }

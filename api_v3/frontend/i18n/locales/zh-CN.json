@@ -48,7 +48,21 @@
     "switch": "切换",
     "current": "当前模型",
     "loading": "模型加载中...",
-    "version": "版本"
+    "version": "版本",
+    "all": "全部",
+    "allVersions": "全部版本",
+    "items": "个",
+    "noModels": "未找到模型文件",
+    "unknown": "未知角色",
+    "incomplete": "不完整",
+    "notFound": "未找到",
+    "dir": "目录",
+    "files": "文件",
+    "missing": "缺失",
+    "modified": "修改时间",
+    "convertToOnnx": "转换为 ONNX",
+    "startConvert": "开始转换",
+    "outputDir": "输出目录"
   },
   "config": {
     "defaultConfig": "默认配置",
@@ -109,6 +123,7 @@
     "status": "服务状态",
     "voiceCount": "声音数量",
     "apiVersion": "API 版本",
+    "backendType": "推理后端",
     "chars": "字符"
   }
 }

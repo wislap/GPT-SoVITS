@@ -198,3 +198,9 @@ cython_debug/
 v2ProPlus/
 *.zip
 *.bak
+
+# Genie ONNX models & conversion artifacts
+onnx_models/
+GenieData/
+Cache/
+models/

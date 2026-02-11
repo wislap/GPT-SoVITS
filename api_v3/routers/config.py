@@ -5,7 +5,15 @@ GPT-SoVITS API v3 - 配置管理路由
 """
 
 import asyncio
+import os
+import re
+import sys
+import threading
+import time
+import uuid
 from dataclasses import asdict
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -308,3 +316,421 @@ async def api_put_settings(data: dict):
     """写入 settings.toml"""
     await asave_settings(data)
     return {"status": "ok"}
+
+
+# ─── 模型管理 ───
+
+# Genie ONNX 模型必需文件
+_ONNX_REQUIRED_FILES = {
+    "t2s_encoder_fp32.onnx",
+    "t2s_first_stage_decoder_fp32.onnx",
+    "t2s_stage_decoder_fp32.onnx",
+    "vits_fp32.onnx",
+}
+_ONNX_OPTIONAL_FILES = {
+    "prompt_encoder_fp32.onnx",      # V2ProPlus
+    "t2s_shared_fp16.bin",
+    "vits_fp16.bin",
+    "prompt_encoder_fp16.bin",
+}
+
+# Genie ONNX 模型搜索根目录（可配置）
+_ONNX_SEARCH_ROOTS = ["onnx_models", "Genie-TTS/models", "models"]
+
+
+def _parse_gsv_filename(filename: str) -> dict:
+    """从 GSV 权重文件名解析元数据（角色名、epoch、step）"""
+    stem = Path(filename).stem
+    info = {"character": "", "epoch": None, "step": None}
+
+    # 匹配 epoch: xxx-e10 或 xxx_e10
+    m = re.search(r'[-_]e(\d+)', stem)
+    if m:
+        info["epoch"] = int(m.group(1))
+
+    # 匹配 step: xxx_s230 或 xxx-s230
+    m = re.search(r'[-_]s(\d+)', stem)
+    if m:
+        info["step"] = int(m.group(1))
+
+    # 角色名：去掉 epoch/step 后缀
+    name = re.sub(r'[-_][es]\d+', '', stem).strip('-_ ')
+    info["character"] = name
+    return info
+
+
+def _file_meta(filepath: Path) -> dict:
+    """获取文件元数据"""
+    stat = filepath.stat()
+    return {
+        "size_bytes": stat.st_size,
+        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+
+def _dir_size(dirpath: Path) -> int:
+    """计算目录总大小"""
+    total = 0
+    for f in dirpath.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total
+
+
+def _scan_gsv_models() -> list[dict]:
+    """扫描 GSV PyTorch 模型，按角色配对 GPT+SoVITS"""
+    # 先收集所有 GPT 和 SoVITS 文件
+    gpt_files: dict[str, list[dict]] = {}   # version → [file_info]
+    sovits_files: dict[str, list[dict]] = {}
+
+    for version, dirname in _GPT_WEIGHT_ROOTS.items():
+        folder = _PROJECT_ROOT / dirname
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.rglob("*.ckpt")):
+            if not f.is_file():
+                continue
+            parsed = _parse_gsv_filename(f.name)
+            meta = _file_meta(f)
+            rel_path = str(f.relative_to(_PROJECT_ROOT))
+            entry = {
+                "path": rel_path,
+                "filename": f.name,
+                "version": version,
+                "character": parsed["character"],
+                "epoch": parsed["epoch"],
+                "step": parsed["step"],
+                **meta,
+            }
+            gpt_files.setdefault(version, []).append(entry)
+
+    for version, dirname in _SOVITS_WEIGHT_ROOTS.items():
+        folder = _PROJECT_ROOT / dirname
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.rglob("*.pth")):
+            if not f.is_file():
+                continue
+            parsed = _parse_gsv_filename(f.name)
+            meta = _file_meta(f)
+            rel_path = str(f.relative_to(_PROJECT_ROOT))
+            entry = {
+                "path": rel_path,
+                "filename": f.name,
+                "version": version,
+                "character": parsed["character"],
+                "epoch": parsed["epoch"],
+                "step": parsed["step"],
+                **meta,
+            }
+            sovits_files.setdefault(version, []).append(entry)
+
+    # 构建模型列表：每个 GPT 文件作为一个模型条目
+    models = []
+    for version, gpt_list in gpt_files.items():
+        for gpt in gpt_list:
+            # 尝试匹配同角色的 SoVITS
+            matched_sovits = None
+            for sv in sovits_files.get(version, []):
+                if sv["character"] == gpt["character"]:
+                    matched_sovits = sv
+                    break
+
+            total_size = gpt["size_bytes"]
+            if matched_sovits:
+                total_size += matched_sovits["size_bytes"]
+
+            models.append({
+                "type": "pytorch",
+                "version": version,
+                "character": gpt["character"],
+                "total_size_bytes": total_size,
+                "modified": gpt["modified"],
+                "gpt": gpt,
+                "sovits": matched_sovits,
+            })
+
+    # 添加没有配对 GPT 的 SoVITS 文件
+    gpt_chars = {(g["version"], g["character"]) for gl in gpt_files.values() for g in gl}
+    for version, sv_list in sovits_files.items():
+        for sv in sv_list:
+            if (version, sv["character"]) not in gpt_chars:
+                models.append({
+                    "type": "pytorch",
+                    "version": version,
+                    "character": sv["character"],
+                    "total_size_bytes": sv["size_bytes"],
+                    "modified": sv["modified"],
+                    "gpt": None,
+                    "sovits": sv,
+                })
+
+    return models
+
+
+def _scan_onnx_models() -> list[dict]:
+    """扫描 Genie ONNX 模型目录"""
+    models = []
+    searched = set()
+
+    for root_name in _ONNX_SEARCH_ROOTS:
+        root = _PROJECT_ROOT / root_name
+        if not root.is_dir():
+            continue
+        # 每个子目录可能是一个角色模型
+        for d in sorted(root.iterdir()):
+            if not d.is_dir() or str(d) in searched:
+                continue
+            searched.add(str(d))
+
+            existing = {f.name for f in d.iterdir() if f.is_file()}
+            has_required = _ONNX_REQUIRED_FILES.issubset(existing)
+            if not has_required and not existing.intersection(_ONNX_REQUIRED_FILES):
+                continue  # 不是 ONNX 模型目录
+
+            missing = _ONNX_REQUIRED_FILES - existing
+            has_prompt_encoder = "prompt_encoder_fp32.onnx" in existing
+            has_fp16 = bool(existing.intersection({"t2s_shared_fp16.bin", "vits_fp16.bin"}))
+
+            total_size = _dir_size(d)
+            # 最新修改时间
+            latest_mtime = max(
+                (f.stat().st_mtime for f in d.rglob("*") if f.is_file()),
+                default=0,
+            )
+
+            models.append({
+                "type": "onnx",
+                "version": "V2ProPlus" if has_prompt_encoder else "V2",
+                "character": d.name,
+                "total_size_bytes": total_size,
+                "modified": datetime.fromtimestamp(latest_mtime).isoformat() if latest_mtime else "",
+                "onnx_model_dir": str(d.relative_to(_PROJECT_ROOT)),
+                "complete": len(missing) == 0,
+                "missing_files": sorted(missing) if missing else [],
+                "has_fp16": has_fp16,
+                "has_prompt_encoder": has_prompt_encoder,
+                "file_count": len(existing),
+            })
+
+    return models
+
+
+def _get_voice_references() -> dict[str, str]:
+    """获取所有 voice 配置中引用的模型路径 → voice_id 映射"""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+    refs = {}
+    voices_dir = _PROJECT_ROOT / "api_v3" / "voices"
+    if not voices_dir.is_dir():
+        return refs
+    for f in voices_dir.glob("*.toml"):
+        if f.name.startswith("_"):
+            continue
+        try:
+            with open(f, "rb") as fh:
+                data = tomllib.load(fh)
+            voice_id = data.get("voice", {}).get("id", f.stem)
+            model = data.get("model", {})
+            if model.get("gpt_weights"):
+                refs[model["gpt_weights"]] = voice_id
+            if model.get("sovits_weights"):
+                refs[model["sovits_weights"]] = voice_id
+            if model.get("onnx_model_dir"):
+                refs[model["onnx_model_dir"]] = voice_id
+        except Exception:
+            continue
+    return refs
+
+
+@router.get("/models", summary="扫描所有模型")
+async def api_list_models(
+    type: Optional[str] = Query(None, description="过滤类型: pytorch | onnx"),
+    version: Optional[str] = Query(None, description="过滤版本: v1, v2, v3, v4, v2Pro, v2ProPlus, V2, V2ProPlus"),
+):
+    """统一扫描 GSV PyTorch 和 Genie ONNX 模型，返回结构化元数据"""
+
+    def _scan():
+        models = []
+        voice_refs = _get_voice_references()
+
+        if type != "onnx":
+            for m in _scan_gsv_models():
+                # 标记是否被 voice 引用
+                gpt_path = m["gpt"]["path"] if m["gpt"] else ""
+                sv_path = m["sovits"]["path"] if m["sovits"] else ""
+                m["voice_id"] = voice_refs.get(gpt_path) or voice_refs.get(sv_path) or ""
+                models.append(m)
+
+        if type != "pytorch":
+            for m in _scan_onnx_models():
+                m["voice_id"] = voice_refs.get(m.get("onnx_model_dir", "")) or ""
+                models.append(m)
+
+        # 版本过滤
+        if version:
+            v_lower = version.lower()
+            models = [m for m in models if m["version"].lower() == v_lower]
+
+        return models
+
+    models = await asyncio.to_thread(_scan)
+    return {"models": models, "total": len(models)}
+
+
+# ─── 模型转换 ───
+
+class ConvertStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    ERROR = "error"
+
+
+class _ConvertTask:
+    """单个转换任务的状态"""
+    __slots__ = ("id", "status", "progress", "message", "gpt_weights", "sovits_weights",
+                 "output_dir", "created_at", "finished_at")
+
+    def __init__(self, task_id: str, gpt_weights: str, sovits_weights: str, output_dir: str):
+        self.id = task_id
+        self.status = ConvertStatus.PENDING
+        self.progress = 0          # 0~100
+        self.message = ""
+        self.gpt_weights = gpt_weights
+        self.sovits_weights = sovits_weights
+        self.output_dir = output_dir
+        self.created_at = time.time()
+        self.finished_at: float = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "status": self.status.value,
+            "progress": self.progress,
+            "message": self.message,
+            "gpt_weights": self.gpt_weights,
+            "sovits_weights": self.sovits_weights,
+            "output_dir": self.output_dir,
+            "created_at": self.created_at,
+            "finished_at": self.finished_at,
+        }
+
+
+# 全局任务存储（内存，重启丢失）
+_convert_tasks: dict[str, _ConvertTask] = {}
+_convert_lock = threading.Lock()
+
+
+def _run_convert(task: _ConvertTask):
+    """在后台线程中执行模型转换"""
+    task.status = ConvertStatus.RUNNING
+    task.progress = 5
+    task.message = "正在初始化转换器..."
+
+    try:
+        # 确保 Genie-TTS src 在 sys.path 中
+        genie_src = str(_PROJECT_ROOT / "Genie-TTS" / "src")
+        if genie_src not in sys.path:
+            sys.path.insert(0, genie_src)
+
+        gpt_path = str(_PROJECT_ROOT / task.gpt_weights) if not os.path.isabs(task.gpt_weights) else task.gpt_weights
+        sovits_path = str(_PROJECT_ROOT / task.sovits_weights) if not os.path.isabs(task.sovits_weights) else task.sovits_weights
+        out_dir = str(_PROJECT_ROOT / task.output_dir) if not os.path.isabs(task.output_dir) else task.output_dir
+
+        # 检查输入文件
+        if not os.path.isfile(gpt_path):
+            raise FileNotFoundError(f"GPT 权重文件不存在: {gpt_path}")
+        if not os.path.isfile(sovits_path):
+            raise FileNotFoundError(f"SoVITS 权重文件不存在: {sovits_path}")
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        task.progress = 10
+        task.message = "正在加载转换模块..."
+
+        # 绕过 genie_tts/__init__.py 的完整导入链（会触发交互式 input 和资源检查）
+        # 只需要 Converter 子包，不需要完整运行时
+        import types
+        import builtins
+
+        # 1. 创建占位 GenieData 目录（避免 Resources.py 的 input() 阻塞）
+        genie_data_dir = str(_PROJECT_ROOT / "GenieData")
+        os.environ["GENIE_DATA_DIR"] = genie_data_dir
+        os.makedirs(genie_data_dir, exist_ok=True)
+        # 创建 Resources.py 检查的必需目录/文件占位
+        hubert_dir = os.path.join(genie_data_dir, "chinese-hubert-base")
+        sv_model = os.path.join(genie_data_dir, "speaker_encoder.onnx")
+        os.makedirs(hubert_dir, exist_ok=True)
+        if not os.path.exists(sv_model):
+            open(sv_model, "w").close()
+
+        # 2. 临时 mock input() 防止阻塞
+        original_input = builtins.input
+        builtins.input = lambda *a, **kw: "n"
+        try:
+            from genie_tts.Converter.Converter import convert
+        finally:
+            builtins.input = original_input
+
+        task.progress = 20
+        task.message = "正在转换模型（这可能需要几分钟）..."
+
+        convert(
+            torch_ckpt_path=gpt_path,
+            torch_pth_path=sovits_path,
+            output_dir=out_dir,
+        )
+
+        task.progress = 100
+        task.status = ConvertStatus.DONE
+        task.message = f"转换完成，输出目录: {out_dir}"
+
+    except Exception as e:
+        task.status = ConvertStatus.ERROR
+        task.message = str(e)
+    finally:
+        task.finished_at = time.time()
+
+
+class ConvertRequest(BaseModel):
+    gpt_weights: str       # .ckpt 路径（相对于项目根或绝对路径）
+    sovits_weights: str    # .pth 路径
+    output_dir: str        # ONNX 输出目录
+
+
+@router.post("/models/convert", summary="提交模型转换任务")
+async def api_convert_model(body: ConvertRequest):
+    """将 PyTorch 模型转换为 Genie ONNX 格式（后台异步执行）"""
+    task_id = uuid.uuid4().hex[:12]
+    task = _ConvertTask(task_id, body.gpt_weights, body.sovits_weights, body.output_dir)
+
+    with _convert_lock:
+        # 检查是否有正在运行的转换任务
+        running = [t for t in _convert_tasks.values() if t.status == ConvertStatus.RUNNING]
+        if running:
+            return {"error": "已有转换任务正在运行，请等待完成后再提交", "running_task_id": running[0].id}
+        _convert_tasks[task_id] = task
+
+    # 启动后台线程
+    thread = threading.Thread(target=_run_convert, args=(task,), daemon=True)
+    thread.start()
+
+    return {"task_id": task_id, "status": task.status.value}
+
+
+@router.get("/models/convert/{task_id}", summary="查询转换任务状态")
+async def api_convert_status(task_id: str):
+    """查询模型转换任务的当前状态"""
+    task = _convert_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"转换任务 {task_id} 不存在")
+    return task.to_dict()
+
+
+@router.get("/models/convert", summary="列出所有转换任务")
+async def api_list_convert_tasks():
+    """列出所有转换任务（含历史）"""
+    return {"tasks": [t.to_dict() for t in _convert_tasks.values()]}

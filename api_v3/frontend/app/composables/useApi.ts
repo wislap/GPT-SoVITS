@@ -1,4 +1,4 @@
-import type { VoiceConfig, VoiceListItem, HealthResponse } from '~/types'
+import type { VoiceConfig, VoiceListItem, HealthResponse, ModelsResponse, ConvertTask } from '~/types'
 
 async function apiFetch<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
   const config = useRuntimeConfig()
@@ -72,6 +72,29 @@ export function useApi() {
     return await $fetch(`/api/v2/set_sovits_weights?weights_path=${encodeURIComponent(weightsPath)}`)
   }
 
+  async function listModels(type?: string, version?: string): Promise<ModelsResponse> {
+    const params = new URLSearchParams()
+    if (type) params.set('type', type)
+    if (version) params.set('version', version)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return apiFetch<ModelsResponse>(`/models${query}`)
+  }
+
+  async function submitConvert(gptWeights: string, sovitsWeights: string, outputDir: string): Promise<{ task_id: string; status: string; error?: string }> {
+    return apiFetch('/models/convert', {
+      method: 'POST',
+      body: { gpt_weights: gptWeights, sovits_weights: sovitsWeights, output_dir: outputDir },
+    })
+  }
+
+  async function getConvertStatus(taskId: string): Promise<ConvertTask> {
+    return apiFetch<ConvertTask>(`/models/convert/${taskId}`)
+  }
+
+  async function listConvertTasks(): Promise<{ tasks: ConvertTask[] }> {
+    return apiFetch('/models/convert')
+  }
+
   async function getSettings(): Promise<Record<string, unknown>> {
     return apiFetch('/settings')
   }
@@ -124,6 +147,10 @@ export function useApi() {
     ttsSubmit,
     ttsTaskStatus,
     ttsTaskAudio,
+    listModels,
+    submitConvert,
+    getConvertStatus,
+    listConvertTasks,
     getSettings,
     saveSettings,
   }
