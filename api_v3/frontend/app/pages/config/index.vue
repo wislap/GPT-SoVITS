@@ -112,24 +112,25 @@
         <p class="text-xs mt-1">{{ $t('config.noProfilesHint') }}</p>
       </div>
 
-      <div v-else class="divide-y divide-gray-100 dark:divide-gray-700 -mx-5">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <div
           v-for="v in voiceConfigs"
           :key="v.voice.id"
-          class="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer group"
+          class="relative rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-all cursor-pointer group"
+          :class="selectedIds.has(v.voice.id) ? 'ring-2 ring-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-750'"
           @click="handleRowClick(v.voice.id)"
         >
-          <!-- 多选框 -->
+          <!-- 多选框（绝对定位右上角） -->
           <div
             v-if="selectMode"
-            class="shrink-0"
+            class="absolute top-2 right-2 z-10"
             @click.stop="toggleSelect(v.voice.id)"
           >
             <div
               class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors"
               :class="selectedIds.has(v.voice.id)
                 ? 'bg-indigo-600 border-indigo-600 text-white'
-                : 'border-gray-300 dark:border-gray-600'"
+                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'"
             >
               <svg v-if="selectedIds.has(v.voice.id)" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
@@ -137,44 +138,52 @@
             </div>
           </div>
 
-          <!-- 头像 -->
-          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/40 flex items-center justify-center text-sm font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
-            {{ v.voice.name.charAt(0) }}
-          </div>
-
-          <!-- 信息 -->
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
+          <!-- 头部：头像 + 名称 -->
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/40 flex items-center justify-center text-sm font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+              {{ v.voice.name.charAt(0) }}
+            </div>
+            <div class="min-w-0 flex-1">
               <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {{ v.voice.name }}
               </p>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-mono shrink-0">
-                {{ v.model.version }}
-              </span>
+              <p class="text-[11px] text-gray-400 truncate">
+                {{ v.voice.description || v.voice.id }}
+              </p>
             </div>
-            <p class="text-xs text-gray-400 truncate mt-0.5">
-              {{ v.voice.description || v.voice.id }}
-            </p>
           </div>
 
-          <!-- 模型摘要 -->
-          <div class="hidden lg:block text-right shrink-0">
-            <p class="text-[11px] text-gray-400 truncate max-w-48">
-              {{ v.model.gpt_weights?.split('/').pop() || '-' }}
-            </p>
-            <p class="text-[11px] text-gray-400 truncate max-w-48 mt-0.5">
-              {{ v.model.sovits_weights?.split('/').pop() || '-' }}
-            </p>
+          <!-- 标签行：后端类型 + 版本 -->
+          <div class="flex items-center gap-1.5 mb-2">
+            <span
+              class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded"
+              :class="getBackendType(v) === 'genie'
+                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'"
+            >
+              {{ getBackendType(v) === 'genie' ? '⚡ Genie' : '🔥 GSV' }}
+            </span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-mono">
+              {{ v.model.version }}
+            </span>
           </div>
 
-          <!-- 箭头 -->
-          <svg
-            v-if="!selectMode"
-            class="w-4 h-4 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 shrink-0 transition-colors"
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <!-- 模型文件摘要 -->
+          <div class="space-y-0.5">
+            <template v-if="getBackendType(v) === 'genie'">
+              <p class="text-[10px] text-gray-400 truncate" :title="v.model.onnx_model_dir">
+                ONNX: {{ v.model.onnx_model_dir || '-' }}
+              </p>
+            </template>
+            <template v-else>
+              <p class="text-[10px] text-gray-400 truncate" :title="v.model.gpt_weights">
+                GPT: {{ v.model.gpt_weights?.split('/').pop() || '-' }}
+              </p>
+              <p class="text-[10px] text-gray-400 truncate" :title="v.model.sovits_weights">
+                SoVITS: {{ v.model.sovits_weights?.split('/').pop() || '-' }}
+              </p>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -218,6 +227,12 @@ function handleRowClick(id: string) {
   } else {
     router.push(`/config/${id}`)
   }
+}
+
+function getBackendType(v: VoiceConfig): string {
+  if (v.model.backend) return v.model.backend
+  if (v.model.onnx_model_dir) return 'genie'
+  return 'gsv'
 }
 
 function handleCreate() {

@@ -60,16 +60,19 @@ def _load_voice_config(voice_id: str) -> VoiceConfig:
 
 def _check_voice_backend(voice_cfg: VoiceConfig, request_or_app) -> str | None:
     """校验 voice 的 backend 字段与当前运行 backend 是否兼容。
-    返回 None 表示兼容，返回错误消息表示不兼容。"""
+    返回 None 表示兼容。不匹配时仅记录警告，不阻止请求
+    （实际不兼容会在模型加载阶段自然报错）。"""
     voice_backend = voice_cfg.model.backend
     if not voice_backend:
-        return None  # 未指定，使用全局 backend，总是兼容
-    app = request_or_app if hasattr(request_or_app, 'state') else request_or_app.app
+        return None
+    # Request 和 WebSocket 都有 .app 属性指向根 FastAPI app
+    app = getattr(request_or_app, 'app', request_or_app)
     running_backend = getattr(app.state, 'backend_name', 'gsv')
     if voice_backend != running_backend:
-        return (
-            f"voice backend '{voice_backend}' 与当前运行的后端 '{running_backend}' 不匹配。"
-            f"请在 settings.toml 中切换 backend 或修改 voice 配置。"
+        import logging
+        logging.getLogger(__name__).warning(
+            f"voice backend '{voice_backend}' 与 app.state.backend_name '{running_backend}' 不一致，"
+            f"可能是 settings.toml 未正确配置或服务需要重启。"
         )
     return None
 

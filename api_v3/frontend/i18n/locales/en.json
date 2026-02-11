@@ -82,6 +82,7 @@
     "audioPath": "Audio Path",
     "gptWeights": "GPT Weights",
     "sovitsWeights": "SoVITS Weights",
+    "onnxModelDir": "ONNX Model Directory",
     "sampling": "Sampling",
     "textProcessing": "Text Processing",
     "processing": "Processing",
@@ -124,6 +125,8 @@
     "voiceCount": "Voice Count",
     "apiVersion": "API Version",
     "backendType": "Backend",
+    "switch": "Switch",
+    "backendSwitchHint": "Switched to {backend}, restart to apply",
     "chars": "chars"
   }
 }

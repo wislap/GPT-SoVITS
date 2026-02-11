@@ -15,6 +15,27 @@
         </h1>
       </div>
       <div class="flex items-center gap-2">
+        <!-- 后端切换 -->
+        <div v-if="config" class="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+          <button
+            class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+            :class="backendType === 'gsv'
+              ? 'bg-white dark:bg-gray-600 text-purple-700 dark:text-purple-300 shadow-sm'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'"
+            @click="switchBackend('gsv')"
+          >
+            🔥 GSV
+          </button>
+          <button
+            class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+            :class="backendType === 'genie'
+              ? 'bg-white dark:bg-gray-600 text-amber-700 dark:text-amber-300 shadow-sm'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'"
+            @click="switchBackend('genie')"
+          >
+            ⚡ Genie
+          </button>
+        </div>
         <button
           class="text-sm px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           @click="router.push('/config')"
@@ -78,9 +99,19 @@
 
       <!-- ═══ 模型配置 ═══ -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{{ $t('nav.models') }}</h2>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('nav.models') }}</h2>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded"
+            :class="backendType === 'genie'
+              ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+              : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'"
+          >
+            {{ backendType === 'genie' ? '⚡ Genie' : '🔥 GSV' }}
+          </span>
+        </div>
         <div class="space-y-2">
-          <!-- 版本选择（放在最前面，影响扫描过滤） -->
+          <!-- 版本选择 -->
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('models.version') }}</label>
             <select
@@ -97,67 +128,104 @@
             </select>
           </div>
 
-          <!-- GPT 权重 -->
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('config.gptWeights') }}</label>
-              <ModeToggle v-model="gptMode" :options="modeOptions" />
-            </div>
-            <input
-              v-if="gptMode === 'manual'"
-              v-model="config.model.gpt_weights"
-              type="text"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
-              placeholder="GPT_weights_v2/xxx.ckpt"
-            />
-            <div v-else class="flex gap-1.5">
-              <select
+          <!-- === GSV 模式：GPT + SoVITS === -->
+          <template v-if="backendType === 'gsv'">
+            <!-- GPT 权重 -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('config.gptWeights') }}</label>
+                <ModeToggle v-model="gptMode" :options="modeOptions" />
+              </div>
+              <input
+                v-if="gptMode === 'manual'"
                 v-model="config.model.gpt_weights"
-                class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
-              >
-                <option value="" disabled>{{ gptFiles.length === 0 ? $t('config.noFiles') : $t('config.selectFile') }}</option>
-                <option v-for="f in gptFiles" :key="f" :value="f">{{ f }}</option>
-              </select>
-              <button
-                class="shrink-0 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
-                :disabled="scanningGpt"
-                @click="scanGpt"
-              >
-                {{ scanningGpt ? '...' : '↻' }}
-              </button>
+                type="text"
+                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                placeholder="GPT_weights_v2/xxx.ckpt"
+              />
+              <div v-else class="flex gap-1.5">
+                <select
+                  v-model="config.model.gpt_weights"
+                  class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                >
+                  <option value="" disabled>{{ gptFiles.length === 0 ? $t('config.noFiles') : $t('config.selectFile') }}</option>
+                  <option v-for="f in gptFiles" :key="f" :value="f">{{ f }}</option>
+                </select>
+                <button
+                  class="shrink-0 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
+                  :disabled="scanningGpt"
+                  @click="scanGpt"
+                >
+                  {{ scanningGpt ? '...' : '↻' }}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <!-- SoVITS 权重 -->
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('config.sovitsWeights') }}</label>
-              <ModeToggle v-model="sovitsMode" :options="modeOptions" />
-            </div>
-            <input
-              v-if="sovitsMode === 'manual'"
-              v-model="config.model.sovits_weights"
-              type="text"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
-              placeholder="SoVITS_weights_v2/xxx.pth"
-            />
-            <div v-else class="flex gap-1.5">
-              <select
+            <!-- SoVITS 权重 -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('config.sovitsWeights') }}</label>
+                <ModeToggle v-model="sovitsMode" :options="modeOptions" />
+              </div>
+              <input
+                v-if="sovitsMode === 'manual'"
                 v-model="config.model.sovits_weights"
-                class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
-              >
-                <option value="" disabled>{{ sovitsFiles.length === 0 ? $t('config.noFiles') : $t('config.selectFile') }}</option>
-                <option v-for="f in sovitsFiles" :key="f" :value="f">{{ f }}</option>
-              </select>
-              <button
-                class="shrink-0 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
-                :disabled="scanningSovits"
-                @click="scanSovits"
-              >
-                {{ scanningSovits ? '...' : '↻' }}
-              </button>
+                type="text"
+                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                placeholder="SoVITS_weights_v2/xxx.pth"
+              />
+              <div v-else class="flex gap-1.5">
+                <select
+                  v-model="config.model.sovits_weights"
+                  class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                >
+                  <option value="" disabled>{{ sovitsFiles.length === 0 ? $t('config.noFiles') : $t('config.selectFile') }}</option>
+                  <option v-for="f in sovitsFiles" :key="f" :value="f">{{ f }}</option>
+                </select>
+                <button
+                  class="shrink-0 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
+                  :disabled="scanningSovits"
+                  @click="scanSovits"
+                >
+                  {{ scanningSovits ? '...' : '↻' }}
+                </button>
+              </div>
             </div>
-          </div>
+          </template>
+
+          <!-- === Genie 模式：ONNX 目录 === -->
+          <template v-else>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('config.onnxModelDir') }}</label>
+                <ModeToggle v-model="onnxMode" :options="modeOptions" />
+              </div>
+              <input
+                v-if="onnxMode === 'manual'"
+                v-model="config.model.onnx_model_dir"
+                type="text"
+                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                placeholder="onnx_models/my_character"
+              />
+              <div v-else class="flex gap-1.5">
+                <select
+                  v-model="config.model.onnx_model_dir"
+                  class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm font-mono"
+                >
+                  <option value="" disabled>{{ onnxDirs.length === 0 ? $t('config.noFiles') : $t('config.selectFile') }}</option>
+                  <option v-for="d in onnxDirs" :key="d" :value="d">{{ d }}</option>
+                </select>
+                <button
+                  class="shrink-0 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
+                  :disabled="scanningOnnx"
+                  @click="scanOnnx"
+                >
+                  {{ scanningOnnx ? '...' : '↻' }}
+                </button>
+              </div>
+              <p class="text-[10px] text-gray-400 mt-1">包含 t2s_encoder_fp32.onnx 等文件的目录</p>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -328,6 +396,16 @@ const loading = ref(true)
 const saving = ref(false)
 const config = ref<VoiceConfig | null>(null)
 
+const backendType = computed({
+  get: () => config.value?.model.backend || (config.value?.model.onnx_model_dir ? 'genie' : 'gsv'),
+  set: (v: string) => { if (config.value) config.value.model.backend = v },
+})
+
+function switchBackend(type: string) {
+  if (!config.value) return
+  config.value.model.backend = type
+}
+
 // ─── 文件扫描状态 ───
 const gptMode = ref<string>('scan')
 const sovitsMode = ref<string>('scan')
@@ -342,6 +420,10 @@ const modeOptions = computed(() => [
 const gptFiles = ref<string[]>([])
 const sovitsFiles = ref<string[]>([])
 const audioFiles = ref<string[]>([])
+
+const onnxMode = ref<string>('scan')
+const onnxDirs = ref<string[]>([])
+const scanningOnnx = ref(false)
 
 const scanningGpt = ref(false)
 const scanningSovits = ref(false)
@@ -377,6 +459,16 @@ async function scanAudioFiles() {
   }
 }
 
+async function scanOnnx() {
+  scanningOnnx.value = true
+  try {
+    const res = await api.scanOnnxDirs()
+    onnxDirs.value = res.dirs
+  } finally {
+    scanningOnnx.value = false
+  }
+}
+
 function onVersionChange() {
   // 切换版本时重新扫描
   if (gptMode.value === 'scan') scanGpt()
@@ -394,7 +486,7 @@ function extractFilenameToPrompt() {
 function makeEmptyConfig(): VoiceConfig {
   return {
     voice: { id: '', name: '', description: '' },
-    model: { gpt_weights: '', sovits_weights: '', version: 'v2' },
+    model: { gpt_weights: '', sovits_weights: '', version: 'v2', onnx_model_dir: '', backend: '' },
     ref_audio: { path: '', prompt_text: '', prompt_lang: 'all_zh', aux_ref_audio_paths: [] },
     params: {
       text_lang: 'all_zh',
@@ -457,5 +549,6 @@ onMounted(async () => {
   scanGpt()
   scanSovits()
   scanAudioFiles()
+  scanOnnx()
 })
 </script>

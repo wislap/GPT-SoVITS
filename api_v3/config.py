@@ -404,11 +404,13 @@ def load_settings() -> dict:
 
 
 def save_settings(data: dict) -> None:
-    """保存用户设置到 settings.toml"""
+    """保存用户设置到 settings.toml（合并写入，不丢失已有字段）"""
     if tomli_w is None:
         raise RuntimeError("需要安装 tomli_w 才能写入 TOML: pip install tomli-w")
+    existing = load_settings()
+    existing.update(data)
     with open(SETTINGS_PATH, "wb") as f:
-        tomli_w.dump(data, f)
+        tomli_w.dump(existing, f)
 
 
 async def aload_settings() -> dict:

@@ -82,6 +82,7 @@
     "audioPath": "音频路径",
     "gptWeights": "GPT 权重",
     "sovitsWeights": "SoVITS 权重",
+    "onnxModelDir": "ONNX 模型目录",
     "sampling": "采样",
     "textProcessing": "文本处理",
     "processing": "处理",
@@ -124,6 +125,8 @@
     "voiceCount": "声音数量",
     "apiVersion": "API 版本",
     "backendType": "推理后端",
+    "switch": "切换",
+    "backendSwitchHint": "已切换到 {backend}，重启服务后生效",
     "chars": "字符"
   }
 }

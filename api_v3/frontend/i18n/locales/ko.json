@@ -82,6 +82,7 @@
     "audioPath": "오디오 경로",
     "gptWeights": "GPT 가중치",
     "sovitsWeights": "SoVITS 가중치",
+    "onnxModelDir": "ONNX 모델 디렉토리",
     "sampling": "샘플링",
     "textProcessing": "텍스트 처리",
     "processing": "처리",
@@ -124,6 +125,8 @@
     "voiceCount": "음성 수",
     "apiVersion": "API 버전",
     "backendType": "추론 백엔드",
+    "switch": "전환",
+    "backendSwitchHint": "{backend}로 전환되었습니다. 재시작 후 적용됩니다",
     "chars": "문자"
   }
 }

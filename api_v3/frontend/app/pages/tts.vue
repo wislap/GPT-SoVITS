@@ -232,6 +232,9 @@ const appliedSovits = useState<string>('appliedSovits', () => '')
 const modelMatched = computed(() => {
   if (!currentConfig.value) return false
   const cfg = currentConfig.value
+  if (cfg.model.backend === 'genie') {
+    return (cfg.model.onnx_model_dir || '') === appliedSovits.value
+  }
   return cfg.model.gpt_weights === appliedGpt.value && cfg.model.sovits_weights === appliedSovits.value
 })
 
@@ -290,14 +293,25 @@ async function handleApply() {
   applying.value = true
   try {
     const cfg = currentConfig.value
-    if (cfg.model.gpt_weights && cfg.model.gpt_weights !== appliedGpt.value) {
-      await api.setGptWeights(cfg.model.gpt_weights)
+    if (cfg.model.backend === 'genie') {
+      // Genie 模式：用 onnx_model_dir 作为 sovits_weights 加载
+      const onnxDir = cfg.model.onnx_model_dir || ''
+      if (onnxDir && onnxDir !== appliedSovits.value) {
+        await api.setSovitsWeights(onnxDir)
+      }
+      appliedGpt.value = ''
+      appliedSovits.value = onnxDir
+    } else {
+      // GSV 模式：加载 GPT + SoVITS 权重
+      if (cfg.model.gpt_weights && cfg.model.gpt_weights !== appliedGpt.value) {
+        await api.setGptWeights(cfg.model.gpt_weights)
+      }
+      if (cfg.model.sovits_weights && cfg.model.sovits_weights !== appliedSovits.value) {
+        await api.setSovitsWeights(cfg.model.sovits_weights)
+      }
+      appliedGpt.value = cfg.model.gpt_weights
+      appliedSovits.value = cfg.model.sovits_weights
     }
-    if (cfg.model.sovits_weights && cfg.model.sovits_weights !== appliedSovits.value) {
-      await api.setSovitsWeights(cfg.model.sovits_weights)
-    }
-    appliedGpt.value = cfg.model.gpt_weights
-    appliedSovits.value = cfg.model.sovits_weights
   } catch (e: any) {
     alert(e?.data?.message || e?.message || '模型切换失败')
   } finally {
@@ -356,8 +370,14 @@ async function handleSynthesize() {
     })
     // 合成成功后更新已应用的模型状态
     if (result.status === 'done' && currentConfig.value) {
-      appliedGpt.value = currentConfig.value.model.gpt_weights
-      appliedSovits.value = currentConfig.value.model.sovits_weights
+      const m = currentConfig.value.model
+      if (m.backend === 'genie') {
+        appliedGpt.value = ''
+        appliedSovits.value = m.onnx_model_dir || ''
+      } else {
+        appliedGpt.value = m.gpt_weights
+        appliedSovits.value = m.sovits_weights
+      }
     }
   }
 }
@@ -370,8 +390,14 @@ function handleWsEnd() {
   wsEnd()
   // 合成成功后更新已应用的模型状态
   if (currentConfig.value) {
-    appliedGpt.value = currentConfig.value.model.gpt_weights
-    appliedSovits.value = currentConfig.value.model.sovits_weights
+    const m = currentConfig.value.model
+    if (m.backend === 'genie') {
+      appliedGpt.value = ''
+      appliedSovits.value = m.onnx_model_dir || ''
+    } else {
+      appliedGpt.value = m.gpt_weights
+      appliedSovits.value = m.sovits_weights
+    }
   }
 }
 

@@ -6,7 +6,9 @@ description = "崩坏：星穹铁道 - 克拉拉"
 [model]
 gpt_weights = "GPT_weights_v2ProPlus/克拉拉-e10.ckpt"
 sovits_weights = "SoVITS_weights_v2ProPlus/克拉拉_e10_s230.pth"
-version = "v2ProPlus"
+version = "v2Pro"
+onnx_model_dir = ""
+backend = ""
 
 [ref_audio]
 path = "v2ProPlus/克拉拉/reference_audios/中文/emotions/【吃惊】还可以飞上天…飞到宇宙里哦！真的好厉害！.wav"

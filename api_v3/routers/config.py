@@ -49,6 +49,8 @@ class ModelConfigResponse(BaseModel):
     gpt_weights: str
     sovits_weights: str
     version: str
+    onnx_model_dir: str = ""
+    backend: str = ""
 
 class RefAudioResponse(BaseModel):
     path: str
@@ -578,6 +580,35 @@ async def api_list_models(
 
     models = await asyncio.to_thread(_scan)
     return {"models": models, "total": len(models)}
+
+
+@router.get("/models/scan/onnx", summary="扫描 ONNX 模型目录列表")
+async def api_scan_onnx_dirs():
+    """返回所有可用的 ONNX 模型目录（相对路径），供配置页选择"""
+
+    def _scan():
+        dirs = []
+        searched = set()
+        for root_name in _ONNX_SEARCH_ROOTS:
+            root = _PROJECT_ROOT / root_name
+            if not root.is_dir():
+                continue
+            real = root.resolve()
+            if real in searched:
+                continue
+            searched.add(real)
+            for d in sorted(root.iterdir()):
+                if not d.is_dir():
+                    continue
+                onnx_files = list(d.glob("*.onnx"))
+                if not onnx_files:
+                    continue
+                rel = str(d.relative_to(_PROJECT_ROOT))
+                dirs.append(rel)
+        return dirs
+
+    dirs = await asyncio.to_thread(_scan)
+    return {"dirs": dirs}
 
 
 # ─── 模型转换 ───

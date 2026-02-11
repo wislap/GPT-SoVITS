@@ -82,6 +82,7 @@
     "audioPath": "音声パス",
     "gptWeights": "GPTウェイト",
     "sovitsWeights": "SoVITSウェイト",
+    "onnxModelDir": "ONNXモデルディレクトリ",
     "sampling": "サンプリング",
     "textProcessing": "テキスト処理",
     "processing": "処理",
@@ -124,6 +125,8 @@
     "voiceCount": "音声数",
     "apiVersion": "APIバージョン",
     "backendType": "推論バックエンド",
+    "switch": "切り替え",
+    "backendSwitchHint": "{backend} に切り替えました。再起動後に反映されます",
     "chars": "文字"
   }
 }

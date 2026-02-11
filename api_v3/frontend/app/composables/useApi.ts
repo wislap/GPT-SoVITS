@@ -95,6 +95,10 @@ export function useApi() {
     return apiFetch('/models/convert')
   }
 
+  async function scanOnnxDirs(): Promise<{ dirs: string[] }> {
+    return apiFetch('/models/scan/onnx')
+  }
+
   async function getSettings(): Promise<Record<string, unknown>> {
     return apiFetch('/settings')
   }
@@ -151,6 +155,7 @@ export function useApi() {
     submitConvert,
     getConvertStatus,
     listConvertTasks,
+    scanOnnxDirs,
     getSettings,
     saveSettings,
   }

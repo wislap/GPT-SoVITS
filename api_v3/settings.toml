@@ -1,15 +1,2 @@
-# 推理后端: "gsv" (GPT-SoVITS PyTorch) | "genie" (Genie-TTS ONNX)
-backend = "gsv"
-last_voice_id = "klala"
-
-# 路径配置（留空则自动推断为 api_v3 的父目录）
-# project_root: 项目根目录，用于解析 voices/*.toml 中的相对路径（模型权重、参考音频等）
-# gsv_package_dir: GPT_SoVITS 包所在目录（仅 gsv 后端需要），用于 sys.path
-# 示例（api_v3 在 GPT-SoVITS 下）:
-#   project_root = ""          → 自动推断为 api_v3/../ 即 GPT-SoVITS/
-#   gsv_package_dir = ""       → 自动推断为 project_root/GPT_SoVITS/
-# 示例（api_v3 独立部署）:
-#   project_root = "/mnt/data/GPT-SoVITS"
-#   gsv_package_dir = "/mnt/data/GPT-SoVITS/GPT_SoVITS"
-project_root = ""
-gsv_package_dir = ""
+backend = "genie"
+last_voice_id = "klala-onnx"

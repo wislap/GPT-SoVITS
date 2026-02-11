@@ -29,18 +29,30 @@
         </div>
       </div>
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :class="health?.backend === 'genie' ? 'bg-amber-50 dark:bg-amber-900/30' : 'bg-purple-50 dark:bg-purple-900/30'">
-            <span class="text-lg">{{ health?.backend === 'genie' ? '⚡' : '🔥' }}</span>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+              :class="health?.backend === 'genie' ? 'bg-amber-50 dark:bg-amber-900/30' : 'bg-purple-50 dark:bg-purple-900/30'">
+              <span class="text-lg">{{ health?.backend === 'genie' ? '⚡' : '🔥' }}</span>
+            </div>
+            <div>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('common.backendType') }}</p>
+              <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ backendLabel }}
+              </p>
+            </div>
           </div>
-          <div>
-            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('common.backendType') }}</p>
-            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {{ backendLabel }}
-            </p>
-          </div>
+          <button
+            class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            :disabled="switchingBackend"
+            @click="toggleBackend"
+          >
+            {{ switchingBackend ? '...' : $t('common.switch') }}
+          </button>
         </div>
+        <p v-if="pendingBackend" class="text-[10px] text-amber-600 dark:text-amber-400 mt-2">
+          ⚠ {{ $t('common.backendSwitchHint', { backend: pendingBackend === 'genie' ? 'Genie' : 'GSV' }) }}
+        </p>
       </div>
     </div>
 
@@ -91,6 +103,8 @@ import type { HealthResponse, VoiceListItem } from '~/types'
 const api = useApi()
 const health = ref<HealthResponse | null>(null)
 const voices = ref<VoiceListItem[]>([])
+const switchingBackend = ref(false)
+const pendingBackend = ref<string | null>(null)
 
 const backendLabel = computed(() => {
   const b = health.value?.backend
@@ -98,6 +112,21 @@ const backendLabel = computed(() => {
   if (b === 'gsv') return 'GPT-SoVITS (PyTorch)'
   return b || '-'
 })
+
+async function toggleBackend() {
+  switchingBackend.value = true
+  try {
+    const settings = await api.getSettings()
+    const current = (settings.backend as string) || 'gsv'
+    const next = current === 'gsv' ? 'genie' : 'gsv'
+    await api.saveSettings({ ...settings, backend: next })
+    pendingBackend.value = next
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Failed to switch backend')
+  } finally {
+    switchingBackend.value = false
+  }
+}
 
 onMounted(async () => {
   try {

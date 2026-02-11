@@ -7,7 +7,9 @@ Genie-TTS ONNX 轻量推理后端
 依赖：genie_tts 包（需要在 sys.path 中包含 Genie-TTS/src）
 """
 
+import builtins
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Generator, Tuple, Optional, List
@@ -42,33 +44,36 @@ _SUPPORTED_LANGUAGES = list(set(_LANG_MAP.keys()))
 
 
 def _ensure_genie_importable():
-    """确保 genie_tts 包可导入"""
-    try:
-        import genie_tts  # noqa: F401
-        return True
-    except ImportError:
-        # 尝试自动添加 Genie-TTS/src 到 sys.path
-        from api_v3.config import PROJECT_ROOT
-        genie_src = PROJECT_ROOT / "src"
+    """确保 genie_tts 包可导入，处理 Resources.py 的交互式检查"""
+    from api_v3.config import PROJECT_ROOT
+
+    # 1. 添加 Genie-TTS/src 到 sys.path
+    candidates = [
+        PROJECT_ROOT / "Genie-TTS" / "src",
+        PROJECT_ROOT / "src",
+        PROJECT_ROOT.parent / "Genie-TTS" / "src",
+    ]
+    for genie_src in candidates:
         if genie_src.is_dir() and str(genie_src) not in sys.path:
             sys.path.insert(0, str(genie_src))
             logger.info(f"[Genie Backend] 添加 Genie-TTS src 到 sys.path: {genie_src}")
-            try:
-                import genie_tts  # noqa: F401
-                return True
-            except ImportError:
-                pass
-        # 再尝试上级目录的 Genie-TTS/src
-        genie_src_alt = PROJECT_ROOT.parent / "Genie-TTS" / "src"
-        if genie_src_alt.is_dir() and str(genie_src_alt) not in sys.path:
-            sys.path.insert(0, str(genie_src_alt))
-            logger.info(f"[Genie Backend] 添加 Genie-TTS src 到 sys.path: {genie_src_alt}")
-            try:
-                import genie_tts  # noqa: F401
-                return True
-            except ImportError:
-                pass
+            break
+
+    # 2. 设置 GenieData 目录（避免 Resources.py 的 input() 阻塞）
+    genie_data = str(PROJECT_ROOT / "GenieData")
+    os.environ.setdefault("GENIE_DATA_DIR", genie_data)
+
+    # 3. 临时 mock input() 防止 Resources.py 阻塞
+    original_input = builtins.input
+    builtins.input = lambda *a, **kw: "n"
+    try:
+        import genie_tts  # noqa: F401
+        return True
+    except ImportError as e:
+        logger.error(f"[Genie Backend] 无法导入 genie_tts: {e}")
         return False
+    finally:
+        builtins.input = original_input
 
 
 class GeniePipeline(BasePipeline):
