@@ -71,6 +71,8 @@ class ModelConfig:
     gpt_weights: str = ""
     sovits_weights: str = ""
     version: str = "v2"
+    onnx_model_dir: str = ""  # Genie 后端: ONNX 模型目录路径
+    backend: str = ""         # 后端类型: "gsv" | "genie"，留空则使用 settings.toml 全局配置
 
 
 @dataclass
@@ -208,6 +210,8 @@ def _dict_to_voice_config(data: dict) -> VoiceConfig:
             gpt_weights=m.get("gpt_weights", ""),
             sovits_weights=m.get("sovits_weights", ""),
             version=m.get("version", "v2"),
+            onnx_model_dir=m.get("onnx_model_dir", ""),
+            backend=m.get("backend", ""),
         )
 
     if "ref_audio" in data:

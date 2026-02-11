@@ -58,6 +58,30 @@ def _load_voice_config(voice_id: str) -> VoiceConfig:
     return load_voice(voice_id)
 
 
+def _check_voice_backend(voice_cfg: VoiceConfig, request_or_app) -> str | None:
+    """校验 voice 的 backend 字段与当前运行 backend 是否兼容。
+    返回 None 表示兼容，返回错误消息表示不兼容。"""
+    voice_backend = voice_cfg.model.backend
+    if not voice_backend:
+        return None  # 未指定，使用全局 backend，总是兼容
+    app = request_or_app if hasattr(request_or_app, 'state') else request_or_app.app
+    running_backend = getattr(app.state, 'backend_name', 'gsv')
+    if voice_backend != running_backend:
+        return (
+            f"voice backend '{voice_backend}' 与当前运行的后端 '{running_backend}' 不匹配。"
+            f"请在 settings.toml 中切换 backend 或修改 voice 配置。"
+        )
+    return None
+
+
+def _resolve_model_weights(voice_cfg: VoiceConfig) -> tuple[str, str]:
+    """根据 voice 配置解析 gpt_weights 和 sovits_weights。
+    Genie 模式下 onnx_model_dir 作为 sovits_weights 传递。"""
+    gpt_w = voice_cfg.model.gpt_weights
+    sovits_w = voice_cfg.model.onnx_model_dir or voice_cfg.model.sovits_weights
+    return gpt_w, sovits_w
+
+
 # ─── REST 端点 ───
 
 @router.post("/tts", summary="提交 TTS 推理任务")
@@ -90,11 +114,17 @@ async def tts_submit(request: Request, body: TTSSubmitRequest):
     if err:
         return JSONResponse(status_code=400, content={"message": err})
 
+    # 校验 voice 后端兼容性
+    backend_err = _check_voice_backend(voice_cfg, request)
+    if backend_err:
+        return JSONResponse(status_code=400, content={"message": backend_err})
+
     # 提交任务
+    gpt_w, sovits_w = _resolve_model_weights(voice_cfg)
     task = await engine.submit(
         voice_id=body.voice_id,
-        gpt_weights=voice_cfg.model.gpt_weights,
-        sovits_weights=voice_cfg.model.sovits_weights,
+        gpt_weights=gpt_w,
+        sovits_weights=sovits_w,
         tts_params=tts_params,
         media_type=media_type,
     )
@@ -213,11 +243,19 @@ async def tts_ws_stream(websocket: WebSocket):
             await websocket.close()
             return
 
+        # 校验 voice 后端兼容性
+        backend_err = _check_voice_backend(voice_cfg, websocket)
+        if backend_err:
+            await websocket.send_json({"type": "error", "message": backend_err})
+            await websocket.close()
+            return
+
         # 提交任务
+        gpt_w, sovits_w = _resolve_model_weights(voice_cfg)
         task = await engine.submit(
             voice_id=voice_id,
-            gpt_weights=voice_cfg.model.gpt_weights,
-            sovits_weights=voice_cfg.model.sovits_weights,
+            gpt_weights=gpt_w,
+            sovits_weights=sovits_w,
             tts_params=tts_params,
             media_type=media_type,
         )
@@ -381,10 +419,11 @@ async def tts_ws_stream_input(websocket: WebSocket):
         tts_params = _build_tts_params(voice_cfg, text, overrides)
         media_type = overrides.get("media_type") or voice_cfg.output.media_type
 
+        gpt_w, sovits_w = _resolve_model_weights(voice_cfg)
         task = await engine.submit(
             voice_id=session_voice_id,
-            gpt_weights=voice_cfg.model.gpt_weights,
-            sovits_weights=voice_cfg.model.sovits_weights,
+            gpt_weights=gpt_w,
+            sovits_weights=sovits_w,
             tts_params=tts_params,
             media_type=media_type,
         )
@@ -455,6 +494,12 @@ async def tts_ws_stream_input(websocket: WebSocket):
                     voice_cfg = _load_voice_config(voice_id)
                 except FileNotFoundError:
                     await _safe_send_json({"type": "error", "message": f"voice_id '{voice_id}' not found"})
+                    break
+
+                # 校验 voice 后端兼容性
+                backend_err = _check_voice_backend(voice_cfg, websocket)
+                if backend_err:
+                    await _safe_send_json({"type": "error", "message": backend_err})
                     break
 
                 session_voice_id = voice_id

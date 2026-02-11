@@ -51,8 +51,9 @@ def _create_pipeline(backend: str):
         (pipeline, cut_method_names) 元组
     """
     if backend == "genie":
-        # TODO: 实现 Genie ONNX 后端
-        raise NotImplementedError("Genie backend is not yet implemented")
+        from api_v3.backends.genie_backend import GeniePipeline
+        pipeline = GeniePipeline()
+        return pipeline, pipeline.cut_method_names
     else:
         # 默认: GSV PyTorch 后端
         from api_v3.backends.gsv_backend import GSVPipeline
@@ -60,7 +61,7 @@ def _create_pipeline(backend: str):
         return pipeline, pipeline.cut_method_names
 
 
-def _auto_load_last_voice(pipeline) -> tuple[str, str]:
+def _auto_load_last_voice(pipeline, backend: str) -> tuple[str, str]:
     """根据 settings.toml 中的 last_voice_id 自动加载上次使用的模型。
     返回 (gpt_weights, sovits_weights) 路径，供 InferenceEngine 同步。"""
     from api_v3.config import load_settings, load_voice
@@ -70,14 +71,23 @@ def _auto_load_last_voice(pipeline) -> tuple[str, str]:
         voice_id = settings.get("last_voice_id", "_default")
         if voice_id and voice_id != "_default":
             cfg = load_voice(voice_id)
-            if cfg.model.gpt_weights:
-                print(f"[startup] 自动加载 GPT 权重: {cfg.model.gpt_weights}")
-                pipeline.init_t2s_weights(cfg.model.gpt_weights)
-                gpt_w = cfg.model.gpt_weights
-            if cfg.model.sovits_weights:
-                print(f"[startup] 自动加载 SoVITS 权重: {cfg.model.sovits_weights}")
-                pipeline.init_vits_weights(cfg.model.sovits_weights)
-                sovits_w = cfg.model.sovits_weights
+
+            if backend == "genie" and cfg.model.onnx_model_dir:
+                # Genie 模式：使用 onnx_model_dir 加载 ONNX 模型
+                print(f"[startup] 自动加载 ONNX 模型目录: {cfg.model.onnx_model_dir}")
+                pipeline.init_vits_weights(cfg.model.onnx_model_dir)
+                sovits_w = cfg.model.onnx_model_dir
+            else:
+                # GSV 模式：分别加载 GPT 和 SoVITS 权重
+                if cfg.model.gpt_weights:
+                    print(f"[startup] 自动加载 GPT 权重: {cfg.model.gpt_weights}")
+                    pipeline.init_t2s_weights(cfg.model.gpt_weights)
+                    gpt_w = cfg.model.gpt_weights
+                if cfg.model.sovits_weights:
+                    print(f"[startup] 自动加载 SoVITS 权重: {cfg.model.sovits_weights}")
+                    pipeline.init_vits_weights(cfg.model.sovits_weights)
+                    sovits_w = cfg.model.sovits_weights
+
             print(f"[startup] 已加载声音配置: {voice_id}")
     except Exception as e:
         print(f"[startup] 自动加载声音配置失败: {e}")
@@ -95,7 +105,7 @@ async def lifespan(app_instance):
     app_instance.state.cut_method_names = cut_method_names
     app_instance.state.backend_name = backend
 
-    loaded_gpt, loaded_sovits = _auto_load_last_voice(pipeline)
+    loaded_gpt, loaded_sovits = _auto_load_last_voice(pipeline, backend)
 
     # 创建并启动推理引擎
     from api_v3.inference import InferenceEngine
