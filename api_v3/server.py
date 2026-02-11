@@ -3,22 +3,23 @@ GPT-SoVITS API v3 - FastAPI 后端服务
 
 提供声音配置管理和 TTS 推理接口。
 路由拆分到 routers/ 目录下，通过 include_router 挂载。
+
+支持多后端：通过 settings.toml 中的 backend 字段切换
+- "gsv"（默认）: GPT-SoVITS 原项目 PyTorch 推理
+- "genie": Genie-TTS ONNX 轻量推理（待实现）
 """
 
 import sys
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# 支持直接运行: python server.py
-_api_v3_dir = Path(__file__).resolve().parent
-_project_root = _api_v3_dir.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-_gpt_sovits_dir = _project_root / "GPT_SoVITS"
-if str(_gpt_sovits_dir) not in sys.path:
-    sys.path.insert(0, str(_gpt_sovits_dir))
+# 路径初始化：从 config.py 集中管理的路径配置中获取
+from api_v3.config import PROJECT_ROOT, GSV_PACKAGE_DIR
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(GSV_PACKAGE_DIR) not in sys.path:
+    sys.path.insert(0, str(GSV_PACKAGE_DIR))
 
 from contextlib import asynccontextmanager
 
@@ -30,24 +31,36 @@ from api_v3.routers.tts_v3 import router as tts_v3_router
 
 # ─── TTS Pipeline 初始化 ───
 
-_tts_config_path: str = "GPT_SoVITS/configs/tts_infer.yaml"
+_tts_config_path: str = str(PROJECT_ROOT / "GPT_SoVITS" / "configs" / "tts_infer.yaml")
 
 
-def _init_tts_pipeline(app_instance):
-    """初始化 TTS pipeline 并挂到 app.state 上"""
-    from GPT_SoVITS.TTS_infer_pack.TTS import TTS, TTS_Config
-    from GPT_SoVITS.TTS_infer_pack.text_segmentation_method import get_method_names as get_cut_method_names
-
-    tts_config = TTS_Config(_tts_config_path)
-    print(tts_config)
-    tts_pipeline = TTS(tts_config)
-
-    app_instance.state.tts_pipeline = tts_pipeline
-    app_instance.state.tts_config = tts_config
-    app_instance.state.cut_method_names = get_cut_method_names()
+def _detect_backend() -> str:
+    """从 settings.toml 读取 backend 配置，默认 'gsv'"""
+    from api_v3.config import load_settings
+    try:
+        settings = load_settings()
+        return settings.get("backend", "gsv")
+    except Exception:
+        return "gsv"
 
 
-def _auto_load_last_voice(tts_pipeline) -> tuple[str, str]:
+def _create_pipeline(backend: str):
+    """根据 backend 类型创建对应的 TTS pipeline
+
+    Returns:
+        (pipeline, cut_method_names) 元组
+    """
+    if backend == "genie":
+        # TODO: 实现 Genie ONNX 后端
+        raise NotImplementedError("Genie backend is not yet implemented")
+    else:
+        # 默认: GSV PyTorch 后端
+        from api_v3.backends.gsv_backend import GSVPipeline
+        pipeline = GSVPipeline(_tts_config_path)
+        return pipeline, pipeline.cut_method_names
+
+
+def _auto_load_last_voice(pipeline) -> tuple[str, str]:
     """根据 settings.toml 中的 last_voice_id 自动加载上次使用的模型。
     返回 (gpt_weights, sovits_weights) 路径，供 InferenceEngine 同步。"""
     from api_v3.config import load_settings, load_voice
@@ -59,11 +72,11 @@ def _auto_load_last_voice(tts_pipeline) -> tuple[str, str]:
             cfg = load_voice(voice_id)
             if cfg.model.gpt_weights:
                 print(f"[startup] 自动加载 GPT 权重: {cfg.model.gpt_weights}")
-                tts_pipeline.init_t2s_weights(cfg.model.gpt_weights)
+                pipeline.init_t2s_weights(cfg.model.gpt_weights)
                 gpt_w = cfg.model.gpt_weights
             if cfg.model.sovits_weights:
                 print(f"[startup] 自动加载 SoVITS 权重: {cfg.model.sovits_weights}")
-                tts_pipeline.init_vits_weights(cfg.model.sovits_weights)
+                pipeline.init_vits_weights(cfg.model.sovits_weights)
                 sovits_w = cfg.model.sovits_weights
             print(f"[startup] 已加载声音配置: {voice_id}")
     except Exception as e:
@@ -74,15 +87,22 @@ def _auto_load_last_voice(tts_pipeline) -> tuple[str, str]:
 @asynccontextmanager
 async def lifespan(app_instance):
     """FastAPI lifespan: 启动时初始化 TTS pipeline、推理引擎，并自动加载上次使用的模型"""
-    _init_tts_pipeline(app_instance)
-    loaded_gpt, loaded_sovits = _auto_load_last_voice(app_instance.state.tts_pipeline)
+    backend = _detect_backend()
+    print(f"[startup] 使用后端: {backend}")
+
+    pipeline, cut_method_names = _create_pipeline(backend)
+    app_instance.state.tts_pipeline = pipeline
+    app_instance.state.cut_method_names = cut_method_names
+    app_instance.state.backend_name = backend
+
+    loaded_gpt, loaded_sovits = _auto_load_last_voice(pipeline)
 
     # 创建并启动推理引擎
     from api_v3.inference import InferenceEngine
     engine = InferenceEngine(
-        app_instance.state.tts_pipeline,
-        app_instance.state.tts_config,
-        app_instance.state.cut_method_names,
+        pipeline,
+        pipeline,  # pipeline 自身实现了 validate_params
+        cut_method_names,
     )
     # 同步启动时已加载的模型路径，避免首次推理重复加载
     if loaded_gpt:
@@ -126,7 +146,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GPT-SoVITS API v3")
     parser.add_argument("-p", "--port", type=int, default=9881, help="监听端口 (默认: 9881)")
     parser.add_argument("-a", "--host", type=str, default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
-    parser.add_argument("-c", "--tts_config", type=str, default="GPT_SoVITS/configs/tts_infer.yaml", help="TTS 配置文件路径")
+    parser.add_argument("-c", "--tts_config", type=str, default=_tts_config_path, help="TTS 配置文件路径")
     args = parser.parse_args()
 
     _tts_config_path = args.tts_config

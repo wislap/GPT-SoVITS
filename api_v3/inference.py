@@ -109,16 +109,16 @@ class InferenceEngine:
     推理引擎：管理任务队列和 Worker。
 
     使用方式：
-        engine = InferenceEngine(tts_pipeline, tts_config, cut_method_names)
+        engine = InferenceEngine(pipeline, pipeline, cut_method_names)
         await engine.start()
         task = await engine.submit(voice_id, gpt_weights, sovits_weights, tts_params, media_type)
         # 获取结果...
         await engine.stop()
     """
 
-    def __init__(self, tts_pipeline, tts_config, cut_method_names: list):
+    def __init__(self, tts_pipeline, validator, cut_method_names: list):
         self._pipeline = tts_pipeline
-        self._tts_config = tts_config
+        self._validator = validator  # 实现了 validate_params(req) 的对象
         self._cut_method_names = cut_method_names
 
         self._queue: asyncio.Queue[InferTask] = asyncio.Queue()
@@ -155,31 +155,8 @@ class InferenceEngine:
                 pass
 
     def validate_params(self, req: dict) -> Optional[str]:
-        """校验 TTS 请求参数，返回错误信息或 None"""
-        text = req.get("text", "")
-        text_lang = req.get("text_lang", "")
-        ref_audio_path = req.get("ref_audio_path", "")
-        prompt_lang = req.get("prompt_lang", "")
-        media_type = req.get("media_type", "wav")
-        text_split_method = req.get("text_split_method", "cut5")
-
-        if not ref_audio_path:
-            return "ref_audio_path is required"
-        if not text:
-            return "text is required"
-        if not text_lang:
-            return "text_lang is required"
-        if text_lang.lower() not in self._tts_config.languages:
-            return f"text_lang: {text_lang} is not supported in version {self._tts_config.version}"
-        if not prompt_lang:
-            return "prompt_lang is required"
-        if prompt_lang.lower() not in self._tts_config.languages:
-            return f"prompt_lang: {prompt_lang} is not supported in version {self._tts_config.version}"
-        if media_type not in ("wav", "raw", "ogg", "aac"):
-            return f"media_type: {media_type} is not supported"
-        if text_split_method not in self._cut_method_names:
-            return f"text_split_method: {text_split_method} is not supported"
-        return None
+        """校验 TTS 请求参数，委托给 pipeline 后端的 validate_params"""
+        return self._validator.validate_params(req)
 
     async def submit(
         self,

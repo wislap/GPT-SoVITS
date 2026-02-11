@@ -21,9 +21,40 @@ except ImportError:
     tomli_w = None
 
 
-# ─── 项目根目录 ───
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VOICES_DIR = Path(__file__).resolve().parent / "voices"
+# ─── 路径配置 ───
+
+_API_V3_DIR = Path(__file__).resolve().parent
+VOICES_DIR = _API_V3_DIR / "voices"
+
+
+def _resolve_project_root() -> Path:
+    """从 settings.toml 读取 project_root，留空则自动推断为 api_v3 的父目录"""
+    try:
+        with open(_API_V3_DIR / "settings.toml", "rb") as f:
+            settings = tomllib.load(f)
+        root = settings.get("project_root", "")
+        if root:
+            return Path(root).resolve()
+    except Exception:
+        pass
+    return _API_V3_DIR.parent
+
+
+def _resolve_gsv_package_dir(project_root: Path) -> Path:
+    """从 settings.toml 读取 gsv_package_dir，留空则推断为 project_root/GPT_SoVITS"""
+    try:
+        with open(_API_V3_DIR / "settings.toml", "rb") as f:
+            settings = tomllib.load(f)
+        d = settings.get("gsv_package_dir", "")
+        if d:
+            return Path(d).resolve()
+    except Exception:
+        pass
+    return project_root / "GPT_SoVITS"
+
+
+PROJECT_ROOT: Path = _resolve_project_root()
+GSV_PACKAGE_DIR: Path = _resolve_gsv_package_dir(PROJECT_ROOT)
 
 
 @dataclass

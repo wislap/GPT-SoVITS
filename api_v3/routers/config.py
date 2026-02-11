@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api_v3.config import (
+    PROJECT_ROOT,
     VoiceConfig,
     aload_voice,
     aload_default_config,
@@ -218,8 +219,7 @@ async def api_reload_config():
 
 # ─── 文件扫描 ───
 
-# 项目根目录（GPT-SoVITS/）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = PROJECT_ROOT
 
 # 权重文件夹映射（version → 文件夹名）
 _GPT_WEIGHT_ROOTS = {

@@ -54,60 +54,21 @@ def _get_pipeline(request: Request):
     return request.app.state.tts_pipeline
 
 
-def _get_tts_config(request: Request):
-    """从 app.state 获取 TTS config"""
-    return request.app.state.tts_config
-
-
-def _get_cut_method_names(request: Request):
-    """从 app.state 获取切分方法名列表"""
-    return request.app.state.cut_method_names
-
-
-def check_params(req: dict, tts_config, cut_method_names: list):
-    """校验 TTS 请求参数"""
-    text: str = req.get("text", "")
-    text_lang: str = req.get("text_lang", "")
-    ref_audio_path: str = req.get("ref_audio_path", "")
-    media_type: str = req.get("media_type", "wav")
-    prompt_lang: str = req.get("prompt_lang", "")
-    text_split_method: str = req.get("text_split_method", "cut5")
-
-    if ref_audio_path in [None, ""]:
-        return JSONResponse(status_code=400, content={"message": "ref_audio_path is required"})
-    if text in [None, ""]:
-        return JSONResponse(status_code=400, content={"message": "text is required"})
-    if text_lang in [None, ""]:
-        return JSONResponse(status_code=400, content={"message": "text_lang is required"})
-    elif text_lang.lower() not in tts_config.languages:
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"text_lang: {text_lang} is not supported in version {tts_config.version}"},
-        )
-    if prompt_lang in [None, ""]:
-        return JSONResponse(status_code=400, content={"message": "prompt_lang is required"})
-    elif prompt_lang.lower() not in tts_config.languages:
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"prompt_lang: {prompt_lang} is not supported in version {tts_config.version}"},
-        )
-    if media_type not in ["wav", "raw", "ogg", "aac"]:
-        return JSONResponse(status_code=400, content={"message": f"media_type: {media_type} is not supported"})
-    if text_split_method not in cut_method_names:
-        return JSONResponse(
-            status_code=400, content={"message": f"text_split_method:{text_split_method} is not supported"}
-        )
-
+def check_params(req: dict, pipeline) -> JSONResponse | None:
+    """校验 TTS 请求参数，委托给 pipeline 后端"""
+    err = pipeline.validate_params(req)
+    if err:
+        return JSONResponse(status_code=400, content={"message": err})
     return None
 
 
-async def tts_handle(req: dict, tts_pipeline, tts_config, cut_method_names: list):
+async def tts_handle(req: dict, tts_pipeline):
     """TTS 推理核心处理函数"""
     streaming_mode = req.get("streaming_mode", False)
     return_fragment = req.get("return_fragment", False)
     media_type = req.get("media_type", "wav")
 
-    check_res = check_params(req, tts_config, cut_method_names)
+    check_res = check_params(req, tts_pipeline)
     if check_res is not None:
         return check_res
 
@@ -224,13 +185,13 @@ async def tts_get_endpoint(
         "overlap_length": int(overlap_length),
         "min_chunk_length": int(min_chunk_length),
     }
-    return await tts_handle(req, _get_pipeline(request), _get_tts_config(request), _get_cut_method_names(request))
+    return await tts_handle(req, _get_pipeline(request))
 
 
 @router.post("/tts", summary="TTS 推理 (POST)")
 async def tts_post_endpoint(request: Request, body: TTS_Request):
     req = body.dict()
-    return await tts_handle(req, _get_pipeline(request), _get_tts_config(request), _get_cut_method_names(request))
+    return await tts_handle(req, _get_pipeline(request))
 
 
 # ─── 模型切换端点 ───
