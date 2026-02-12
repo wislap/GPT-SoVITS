@@ -1,2 +1,2 @@
-backend = "genie"
-last_voice_id = "klala-onnx"
+backend = "gsv"
+last_voice_id = "klala"

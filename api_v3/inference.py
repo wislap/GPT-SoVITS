@@ -236,10 +236,9 @@ class InferenceEngine:
         # 2. 推理
         task.status = TaskStatus.INFERRING
 
-        # 构建推理参数：使用分段返回模式以逐段获取音频 chunk
-        # 不用 streaming_mode（会改变 T2S 推理模式，影响质量）
+        # 构建推理参数：尊重配置中的 return_fragment / streaming_mode
+        # 不强制覆盖，让 TTS.run() 走最优路径（批量推理+并行合成）
         req = dict(task.tts_params)
-        req["return_fragment"] = True
         req["streaming_mode"] = False
 
         media_type = task.media_type

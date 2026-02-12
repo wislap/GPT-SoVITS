@@ -10,9 +10,12 @@ GPT-SoVITS API v3 - FastAPI 后端服务
 """
 
 import sys
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 # 路径初始化：从 config.py 集中管理的路径配置中获取
 from api_v3.config import PROJECT_ROOT, GSV_PACKAGE_DIR
@@ -147,6 +150,37 @@ app.include_router(config_router)
 app.include_router(health_router)
 app.include_router(tts_router)
 app.include_router(tts_v3_router)
+
+
+# ─── 挂载前端静态文件 ───
+_FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / ".output" / "public"
+
+if _FRONTEND_DIST.is_dir():
+    # 挂载 _nuxt/ 等静态资源（带缓存）
+    app.mount("/_nuxt", StaticFiles(directory=_FRONTEND_DIST / "_nuxt"), name="nuxt-assets")
+    # 挂载 public 根目录下的静态文件（favicon.ico, robots.txt 等）
+    app.mount("/static-root", StaticFiles(directory=_FRONTEND_DIST), name="static-root")
+
+    @app.get("/favicon.ico")
+    async def favicon():
+        return FileResponse(_FRONTEND_DIST / "favicon.ico")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(request: Request, full_path: str):
+        """SPA fallback: 非 API 路径都返回 index.html，由 Nuxt 客户端路由处理"""
+        # 尝试精确匹配静态文件（如 /tts/index.html）
+        file_path = _FRONTEND_DIST / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        # 尝试目录下的 index.html（如 /tts -> /tts/index.html）
+        index_path = file_path / "index.html"
+        if index_path.is_file():
+            return FileResponse(index_path)
+        # 兜底返回根 index.html（SPA 客户端路由）
+        return FileResponse(_FRONTEND_DIST / "index.html")
+else:
+    print(f"[warning] 前端静态文件目录不存在: {_FRONTEND_DIST}")
+    print(f"[warning] 请先在 api_v3/frontend/ 下执行 npx nuxt generate 构建前端")
 
 
 if __name__ == "__main__":
