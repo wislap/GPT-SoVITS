@@ -183,10 +183,11 @@ else:
     print(f"[warning] 请先在 api_v3/frontend/ 下执行 npx nuxt generate 构建前端")
 
 
-if __name__ == "__main__":
+def main():
     import argparse
     import uvicorn
 
+    global _tts_config_path
     parser = argparse.ArgumentParser(description="GPT-SoVITS API v3")
     parser.add_argument("-p", "--port", type=int, default=9881, help="监听端口 (默认: 9881)")
     parser.add_argument("-a", "--host", type=str, default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
@@ -195,3 +196,7 @@ if __name__ == "__main__":
 
     _tts_config_path = args.tts_config
     uvicorn.run(app, host=args.host, port=args.port)
+
+
+if __name__ == "__main__":
+    main()

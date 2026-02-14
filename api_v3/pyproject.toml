@@ -1,0 +1,64 @@
+[project]
+name = "gsv-api-v3"
+version = "3.0.0"
+description = "GPT-SoVITS API v3 - FastAPI 后端服务 + Nuxt 前端"
+requires-python = ">=3.10"
+dependencies = [
+    # Web 框架
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0",
+    # 音频处理
+    "numpy>=1.24.0",
+    "soundfile>=0.12.0",
+    # TOML 读写（Python 3.10 无内置 tomllib）
+    "tomli>=2.0.0;python_version<'3.11'",
+    "tomli-w>=1.0.0",
+]
+
+[project.optional-dependencies]
+# 前端开发（需要 Node.js 环境，不在 Python 依赖中管理）
+# 见 frontend/package.json
+dev = [
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+gsv-api = "api_v3.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# 不自动发现包，完全由 force-include 控制
+only-packages = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["_dummy_"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Python 脚本
+"__init__.py" = "api_v3/__init__.py"
+"server.py" = "api_v3/server.py"
+"config.py" = "api_v3/config.py"
+"inference.py" = "api_v3/inference.py"
+"audio_utils.py" = "api_v3/audio_utils.py"
+"backends" = "api_v3/backends"
+"routers" = "api_v3/routers"
+# 前端构建产物（静态 HTML/JS/CSS）
+"frontend/.output/public" = "api_v3/frontend/.output/public"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "*.py",
+    "backends/**/*.py",
+    "routers/**/*.py",
+    "frontend/.output/public/**",
+    "pyproject.toml",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "httpx>=0.27.0",
+]
