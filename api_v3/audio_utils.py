@@ -11,30 +11,32 @@ import wave
 from io import BytesIO
 
 import numpy as np
-import soundfile as sf
 
 
 def pack_ogg(io_buffer: BytesIO, data: np.ndarray, rate: int) -> BytesIO:
-    """将音频数据编码为 OGG 格式（使用独立线程避免 libsndfile 栈溢出）"""
+    """将音频数据编码为 OGG 格式（通过 ffmpeg 转码，无需 libsndfile）"""
+    # 确保数据为 int16
+    if data.dtype != np.int16:
+        data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
 
-    def handle_pack_ogg():
-        with sf.SoundFile(io_buffer, mode="w", samplerate=rate, channels=1, format="ogg") as audio_file:
-            audio_file.write(data)
-
-    # stack_size = n * 4096, n = 4096 以避免大音频时的栈溢出
-    stack_size = 4096 * 4096
-    try:
-        threading.stack_size(stack_size)
-        pack_ogg_thread = threading.Thread(target=handle_pack_ogg)
-        pack_ogg_thread.start()
-        pack_ogg_thread.join()
-    except RuntimeError as e:
-        print(f"RuntimeError: {e}")
-        print("Changing the thread stack size is unsupported.")
-    except ValueError as e:
-        print(f"ValueError: {e}")
-        print("The specified stack size is invalid.")
-
+    process = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-f", "s16le",
+            "-ar", str(rate),
+            "-ac", "1",
+            "-i", "pipe:0",
+            "-c:a", "libvorbis",
+            "-q:a", "4",
+            "-f", "ogg",
+            "pipe:1",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    out, _ = process.communicate(input=data.tobytes())
+    io_buffer.write(out)
     return io_buffer
 
 
@@ -45,9 +47,17 @@ def pack_raw(io_buffer: BytesIO, data: np.ndarray, rate: int) -> BytesIO:
 
 
 def pack_wav(io_buffer: BytesIO, data: np.ndarray, rate: int) -> BytesIO:
-    """将音频数据编码为 WAV 格式"""
+    """将音频数据编码为 WAV 格式（使用标准库 wave）"""
+    # 确保数据为 int16
+    if data.dtype != np.int16:
+        data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
+
     io_buffer = BytesIO()
-    sf.write(io_buffer, data, rate, format="wav")
+    with wave.open(io_buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # int16 = 2 bytes
+        wf.setframerate(rate)
+        wf.writeframes(data.tobytes())
     return io_buffer
 
 

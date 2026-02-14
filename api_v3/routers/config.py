@@ -520,10 +520,7 @@ def _scan_onnx_models() -> list[dict]:
 
 def _get_voice_references() -> dict[str, str]:
     """获取所有 voice 配置中引用的模型路径 → voice_id 映射"""
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
+    from api_v3._toml_compat import load_toml
     refs = {}
     voices_dir = _PROJECT_ROOT / "api_v3" / "voices"
     if not voices_dir.is_dir():
@@ -532,8 +529,7 @@ def _get_voice_references() -> dict[str, str]:
         if f.name.startswith("_"):
             continue
         try:
-            with open(f, "rb") as fh:
-                data = tomllib.load(fh)
+            data = load_toml(f)
             voice_id = data.get("voice", {}).get("id", f.stem)
             model = data.get("model", {})
             if model.get("gpt_weights"):

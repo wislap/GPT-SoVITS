@@ -4,6 +4,7 @@ GPT-SoVITS API v3 - TTS 推理路由
 从 api_v2.py 移植，提供 TTS 推理和模型切换端点。
 路由前缀: /api/v2（保持与 v2 API 兼容的参数格式）
 """
+from __future__ import annotations
 
 from typing import Generator, Union
 from io import BytesIO

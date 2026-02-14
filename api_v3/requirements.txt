@@ -1,4 +1,5 @@
 # GPT-SoVITS API v3 依赖
+# 以下包均已在根目录 requirements.txt 中声明，此文件仅作记录用途
 # Web 框架
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
@@ -6,8 +7,5 @@ pydantic>=2.0
 
 # 音频处理
 numpy>=1.24.0
-soundfile>=0.12.0
-
-# TOML 读写（Python 3.10 无内置 tomllib）
-tomli>=2.0.0; python_version < "3.11"
-tomli-w>=1.0.0
+# soundfile 已替换为标准库 wave + ffmpeg subprocess
+# tomli/tomli-w 已替换为内置 _toml_compat 模块

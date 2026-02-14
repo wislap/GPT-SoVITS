@@ -4,21 +4,14 @@ GPT-SoVITS API v3 - 声音配置管理模块
 使用 TOML 文件存储每个声音角色的推理参数。
 每个 voice_id 对应 voices/ 目录下的一个 .toml 文件。
 """
+from __future__ import annotations
 
 import asyncio
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # Python < 3.11 兼容
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
-# Python 3.11+ 内置 tomllib（只读），写入使用 tomli_w
-try:
-    import tomli_w
-except ImportError:
-    tomli_w = None
+from api_v3._toml_compat import load_toml, dump_toml
 
 
 # ─── 路径配置 ───
@@ -30,8 +23,7 @@ VOICES_DIR = _API_V3_DIR / "voices"
 def _resolve_project_root() -> Path:
     """从 settings.toml 读取 project_root，留空则自动推断为 api_v3 的父目录"""
     try:
-        with open(_API_V3_DIR / "settings.toml", "rb") as f:
-            settings = tomllib.load(f)
+        settings = load_toml(_API_V3_DIR / "settings.toml")
         root = settings.get("project_root", "")
         if root:
             return Path(root).resolve()
@@ -43,8 +35,7 @@ def _resolve_project_root() -> Path:
 def _resolve_gsv_package_dir(project_root: Path) -> Path:
     """从 settings.toml 读取 gsv_package_dir，留空则推断为 project_root/GPT_SoVITS"""
     try:
-        with open(_API_V3_DIR / "settings.toml", "rb") as f:
-            settings = tomllib.load(f)
+        settings = load_toml(_API_V3_DIR / "settings.toml")
         d = settings.get("gsv_package_dir", "")
         if d:
             return Path(d).resolve()
@@ -174,8 +165,7 @@ class VoiceConfig:
 
 def _load_raw_toml(path: str | Path) -> dict:
     """加载 TOML 文件为原始 dict"""
-    with open(path, "rb") as f:
-        return tomllib.load(f)
+    return load_toml(path)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -309,9 +299,6 @@ def save_voice(config: VoiceConfig, path: Optional[str | Path] = None) -> Path:
     保存声音配置到 TOML 文件。
     如果未指定 path，则保存到 voices/{voice_id}.toml
     """
-    if tomli_w is None:
-        raise RuntimeError("需要安装 tomli_w 才能写入 TOML: pip install tomli-w")
-
     if path is None:
         if not config.voice.id:
             raise ValueError("voice.id 不能为空")
@@ -327,8 +314,7 @@ def save_voice(config: VoiceConfig, path: Optional[str | Path] = None) -> Path:
         "output": asdict(config.output),
     }
 
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
+    dump_toml(data, path)
 
     return path
 
@@ -373,8 +359,7 @@ def _find_voice_file(voice_id: str) -> Optional[Path]:
     if VOICES_DIR.exists():
         for toml_file in VOICES_DIR.glob("*.toml"):
             try:
-                with open(toml_file, "rb") as f:
-                    data = tomllib.load(f)
+                data = load_toml(toml_file)
                 if data.get("voice", {}).get("id") == voice_id:
                     return toml_file
             except Exception:
@@ -405,12 +390,9 @@ def load_settings() -> dict:
 
 def save_settings(data: dict) -> None:
     """保存用户设置到 settings.toml（合并写入，不丢失已有字段）"""
-    if tomli_w is None:
-        raise RuntimeError("需要安装 tomli_w 才能写入 TOML: pip install tomli-w")
     existing = load_settings()
     existing.update(data)
-    with open(SETTINGS_PATH, "wb") as f:
-        tomli_w.dump(existing, f)
+    dump_toml(existing, SETTINGS_PATH)
 
 
 async def aload_settings() -> dict:

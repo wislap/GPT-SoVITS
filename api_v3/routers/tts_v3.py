@@ -9,6 +9,7 @@ GPT-SoVITS API v3 - TTS 推理路由 (v3)
 - WS   /api/v3/tts/stream-input 双向流式：文本流入+音频流出
 - GET  /api/v3/tts/queue        查看队列状态
 """
+from __future__ import annotations
 
 import asyncio
 from typing import Optional
